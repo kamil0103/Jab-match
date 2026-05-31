@@ -5,7 +5,7 @@ from app.ai.client import AIClient
 
 MATCHING_PROMPT = """You are a job matching expert for Computer Science graduates.
 
-Given a candidate's skills, courses, certificates, and a job description, analyze the fit.
+Given a candidate's skills, courses, certificates, and a job description, analyze the fit in detail.
 
 Candidate Skills:
 {skills_json}
@@ -19,10 +19,26 @@ Candidate Certificates:
 Job Description:
 {job_description}
 
-Return ONLY a valid JSON object with this exact structure, no extra text before or after:
-{{"match_score": 85, "summary": "Brief summary", "matching_skills": ["Python"], "missing_skills": ["Kubernetes"], "relevant_courses": ["CS101"], "relevant_certs": ["AWS Certified"], "suggested_improvements": "Focus on cloud skills"}}
+Return ONLY a valid JSON object with this exact structure. No markdown, no extra text:
 
-match_score should be 0-100 based on skill overlap and relevance.
+{{
+  "match_score": 85,
+  "summary": "2-3 sentence overall assessment of fit, explaining why this candidate is a good/partial/weak match",
+  "matching_skills": ["Python", "Data Structures", "SQL"],
+  "missing_skills": ["Kubernetes", "Go", "System Design"],
+  "relevant_courses": ["CS 201 - Data Structures", "CS 310 - Database Systems"],
+  "relevant_certs": ["AWS Certified Developer"],
+  "suggested_improvements": "Specific actionable advice to improve candidacy for this role"
+}}
+
+Rules:
+- match_score: 0-100 integer based on skill overlap, course relevance, and experience fit
+- matching_skills: specific skills from the candidate that directly match job requirements
+- missing_skills: specific skills mentioned in the job the candidate lacks
+- relevant_courses: courses that directly support this job
+- relevant_certs: certificates that strengthen this application
+- summary: honest but constructive assessment
+- suggested_improvements: concrete next steps like "Take an online Kubernetes course" or "Build a project using Docker"
 """
 
 class JobMatcher:

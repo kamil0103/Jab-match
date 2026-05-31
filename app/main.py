@@ -15,6 +15,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Ensure required directories exist
+Config.ensure_dirs()
+
 # ============================================
 # AUTHENTICATION
 # ============================================
@@ -634,7 +637,6 @@ elif page == "Jobs":
                                         (result.get("match_score"), json.dumps(result.get("missing_skills", [])), json.dumps(result), job['id'])
                                     )
                                     st.success(f"Match Score: {result['match_score']}%")
-                                    st.json(result)
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Matching failed: {e}")
@@ -642,6 +644,55 @@ elif page == "Jobs":
                     if st.button(f"Delete", key=f"del_{job['id']}"):
                         db.execute("DELETE FROM jobs WHERE id = ?", (job['id'],))
                         st.rerun()
+
+                # Display stored fit analysis
+                if job.get("requirements"):
+                    try:
+                        fit_data = json.loads(job["requirements"])
+                        score = fit_data.get("match_score", 0)
+                        score_color = "🟢" if score >= 70 else "🟡" if score >= 40 else "🔴"
+                        st.markdown("---")
+                        st.markdown(f"## {score_color} AI Fit Analysis: {score}%")
+                        st.progress(score / 100.0)
+
+                        if fit_data.get("summary"):
+                            st.markdown(f"**Summary:** {fit_data['summary']}")
+
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            matching = fit_data.get("matching_skills", [])
+                            if matching:
+                                st.markdown("#### ✅ Matching Skills")
+                                for skill in matching:
+                                    st.markdown(f"<span style='background:#d4edda;padding:4px 10px;border-radius:12px;color:#155724;font-size:13px;margin:2px;display:inline-block;'>{skill}</span>", unsafe_allow_html=True)
+
+                            rel_courses = fit_data.get("relevant_courses", [])
+                            if rel_courses:
+                                st.markdown("#### 📚 Relevant Courses")
+                                for course in rel_courses:
+                                    if isinstance(course, dict):
+                                        st.markdown(f"- **{course.get('code', '')}** — {course.get('name', '')}")
+                                    else:
+                                        st.markdown(f"- {course}")
+
+                            rel_certs = fit_data.get("relevant_certs", [])
+                            if rel_certs:
+                                st.markdown("#### 🏆 Relevant Certificates")
+                                for cert in rel_certs:
+                                    st.markdown(f"- {cert}")
+
+                        with c2:
+                            missing = fit_data.get("missing_skills", [])
+                            if missing:
+                                st.markdown("#### ⚠️ Missing Skills")
+                                for skill in missing:
+                                    st.markdown(f"<span style='background:#fff3cd;padding:4px 10px;border-radius:12px;color:#856404;font-size:13px;margin:2px;display:inline-block;'>{skill}</span>", unsafe_allow_html=True)
+
+                            if fit_data.get("suggested_improvements"):
+                                st.markdown("#### 💡 Suggested Improvements")
+                                st.info(fit_data["suggested_improvements"])
+                    except Exception:
+                        pass
 
     # Show skill inventory
     if skills:
