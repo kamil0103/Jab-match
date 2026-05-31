@@ -1,6 +1,6 @@
 services:
   job-matcher:
-    build: .
+    image: ghcr.io/kamil0103/jab-match:latest
     container_name: job-matcher
     ports:
       - "8501:8501"
