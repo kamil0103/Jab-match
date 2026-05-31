@@ -1,0 +1,36 @@
+<!-- cover_letter.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Cover Letter — {{ job_title }}</title>
+    <style>
+        body { font-family: 'Helvetica', 'Arial', sans-serif; margin: 40px; color: #333; line-height: 1.6; }
+        .header { margin-bottom: 24px; }
+        .date { text-align: right; }
+        .content { margin-top: 24px; }
+        .signature { margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <p class="date">{{ date }}</p>
+        <p><strong>{{ company }}</strong><br>{{ company_address }}</p>
+    </div>
+
+    <div class="content">
+        <p>Dear Hiring Manager,</p>
+
+        <p>{{ opening }}</p>
+
+        <p>{{ body }}</p>
+
+        <p>{{ closing }}</p>
+    </div>
+
+    <div class="signature">
+        <p>Sincerely,</p>
+        <p><strong>{{ name }}</strong><br>{{ email }}<br>{{ phone }}</p>
+    </div>
+</body>
+</html>

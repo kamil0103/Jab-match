@@ -1,0 +1,66 @@
+<!-- resume.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ name }} - Resume</title>
+    <style>
+        body { font-family: 'Helvetica', 'Arial', sans-serif; margin: 40px; color: #333; }
+        h1 { font-size: 24px; border-bottom: 2px solid #2c3e50; padding-bottom: 8px; }
+        h2 { font-size: 18px; color: #2c3e50; margin-top: 24px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+        .section { margin-top: 16px; }
+        .course { margin-bottom: 8px; }
+        .course-name { font-weight: bold; }
+        .skills { display: flex; flex-wrap: wrap; gap: 8px; }
+        .skill { background: #ecf0f1; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 4px; }
+    </style>
+</head>
+<body>
+    <h1>{{ name }}</h1>
+    <p>{{ summary }}</p>
+
+    <h2>Education</h2>
+    <div class="section">
+        <p><strong>{{ university }}</strong> — {{ degree }}</p>
+        <p>GPA: {{ gpa }}</p>
+    </div>
+
+    <h2>Relevant Coursework</h2>
+    <div class="section">
+        {% for course in courses %}
+        <div class="course">
+            <span class="course-name">{{ course.code }} — {{ course.name }}</span>
+            <span>(Grade: {{ course.grade }}, {{ course.credits }} credits)</span>
+            <p>{{ course.description }}</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h2>Skills</h2>
+    <div class="section skills">
+        {% for skill in skills %}
+        <span class="skill">{{ skill }}</span>
+        {% endfor %}
+    </div>
+
+    <h2>Certifications</h2>
+    <div class="section">
+        <ul>
+            {% for cert in certs %}
+            <li>{{ cert }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <h2>Projects & Experience</h2>
+    <div class="section">
+        <ul>
+            {% for item in experience %}
+            <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>

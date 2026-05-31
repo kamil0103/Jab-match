@@ -1,0 +1,134 @@
+import json
+import re
+from typing import List, Dict, Any
+from app.ai.client import AIClient
+
+COURSE_EXTRACTION_PROMPT = """You are an expert academic transcript parser. Given the raw text extracted from a university transcript, extract all courses into a structured JSON format.
+
+Return ONLY a valid JSON object with this exact structure (no markdown, no explanations, no extra text before or after):
+{{"courses": [{{"code": "CS101", "name": "Introduction to Computer Science", "grade": "A", "credits": 3.0, "description": "Brief description if available, otherwise infer from course name"}}], "university": "University Name", "degree": "Bachelor of Science in Computer Science", "gpa": "3.8", "transfer_credits": {{"institution": "Community College Name", "attempted": 64.0, "earned": 64.0, "gpa_units": 63.0, "points": 195.0, "transfer_gpa": 3.095}}}}
+
+Rules:
+- Extract EVERY course listed in the transcript, including transfer credits if individual courses are listed
+- Also extract the transfer credit SUMMARY if present (institution name, attempted, earned, gpa_units, points, transfer_gpa)
+- If transfer credit section only shows totals (no individual courses), still include the transfer_credits object with the summary numbers
+- If no transfer credits exist, set transfer_credits to null
+- If a field is missing, use null or best inference
+- grade should be the letter grade (A, B+, etc.)
+- credits should be a number
+- description can be inferred from the course name if not explicitly stated
+- Output ONLY the JSON object, nothing else
+
+Transcript text:
+{text}
+"""
+
+SKILL_EXTRACTION_PROMPT = """You are a technical skills extractor for Computer Science graduates.
+
+Given the following courses and their descriptions, extract a comprehensive list of technical skills, tools, languages, frameworks, and concepts.
+
+Return ONLY a valid JSON array of skills (no markdown, no explanations, no extra text before or after):
+[{{"name": "Python", "category": "Programming Language", "proficiency": "Intermediate", "source": "CS101 - Introduction to Computer Science"}}]
+
+Categories to use: Programming Language, Framework, Tool, Concept, Database, Cloud, DevOps, Data Science, Machine Learning, Web Development, Mobile Development, Security, Algorithm, Theory, Soft Skill
+
+Proficiency levels: Beginner, Intermediate, Advanced, Expert (infer from course name, grade, and level)
+
+Courses:
+{courses_json}
+"""
+
+class TranscriptExtractor:
+    def __init__(self):
+        self.client = AIClient()
+
+    def extract_courses(self, transcript_text: str) -> Dict[str, Any]:
+        prompt = COURSE_EXTRACTION_PROMPT.format(text=transcript_text)
+        response = self.client.chat(prompt)
+        json_str = self._extract_json(response)
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse AI response as JSON: {e}. Raw response: {response[:500]}")
+
+    def extract_skills(self, courses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        courses_json = json.dumps(courses, indent=2)
+        prompt = SKILL_EXTRACTION_PROMPT.format(courses_json=courses_json)
+        response = self.client.chat(prompt)
+        json_str = self._extract_json(response)
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse AI response as JSON: {e}. Raw response: {response[:500]}")
+
+    def enhance_with_syllabi(self, courses: List[Dict[str, Any]], syllabi_texts: List[str]) -> List[Dict[str, Any]]:
+        prompt = f"""Given these courses and additional syllabus details, enhance the course descriptions and infer skills.
+
+Courses: {json.dumps(courses, indent=2)}
+
+Syllabus texts: {json.dumps(syllabi_texts, indent=2)}
+
+Return ONLY a valid JSON array of enhanced courses with a new field 'enhanced_skills' listing skills inferred from the syllabus. No extra text before or after.
+"""
+        response = self.client.chat(prompt)
+        json_str = self._extract_json(response)
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse AI response as JSON: {e}. Raw response: {response[:500]}")
+
+    def _extract_json(self, text: str) -> str:
+        text = text.strip()
+
+        # 1. Try markdown code blocks
+        if "```json" in text:
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            if end != -1:
+                return text[start:end].strip()
+        if "```" in text:
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            if end != -1:
+                return text[start:end].strip()
+
+        # 2. Try to find a JSON object by balanced braces
+        obj = self._find_balanced(text, "{", "}")
+        if obj:
+            return obj
+
+        # 3. Try to find a JSON array by balanced brackets
+        arr = self._find_balanced(text, "[", "]")
+        if arr:
+            return arr
+
+        # 4. Fallback: return stripped text
+        return text
+
+    def _find_balanced(self, text: str, open_char: str, close_char: str) -> str:
+        start = text.find(open_char)
+        if start == -1:
+            return ""
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == open_char:
+                depth += 1
+            elif ch == close_char:
+                depth -= 1
+                if depth == 0:
+                    return text[start:i+1]
+        return ""

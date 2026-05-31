@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env.local
+.DS_Store
+data/
+!data/.gitkeep

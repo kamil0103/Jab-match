@@ -1,0 +1,17 @@
+services:
+  job-matcher:
+    build: .
+    container_name: job-matcher
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - SCHEDULE_ENABLED=${SCHEDULE_ENABLED:-false}
+      - SCHEDULE_TIME=${SCHEDULE_TIME:-09:00}
+      - SCRAPER_ENABLED=${SCRAPER_ENABLED:-false}
+      - SCRAPER_DELAY=${SCRAPER_DELAY:-20}
+    restart: unless-stopped
