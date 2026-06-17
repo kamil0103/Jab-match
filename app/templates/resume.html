@@ -37,29 +37,23 @@
 
     <h2>Education</h2>
     <div class="section">
-        {% for deg in degrees if deg.degree_name %}
+        {% for entry in education_entries if entry.degree_name or entry.courses %}
         <p>
-            <strong>{{ deg.degree_name }}</strong>
-            {% if deg.field and deg.field.lower() not in deg.degree_name.lower() %} — {{ deg.field }}{% endif %}<br>
-            <em>{{ deg.institution_name }}</em>
-            {% if deg.start_date or deg.end_date %}
+            <strong>{% if entry.degree_name %}{{ entry.degree_name }}{% else %}Relevant Coursework{% endif %}</strong>
+            {% if entry.field and (not entry.degree_name or entry.field.lower() not in entry.degree_name.lower()) %} — {{ entry.field }}{% endif %}<br>
+            <em>{{ entry.institution_name }}</em>
+            {% if entry.start_date or entry.end_date %}
                 <span style="color: #666;">
-                    ({{ deg.start_date or '' }} — {% if deg.is_current %}Present{% else %}{{ deg.end_date or '' }}{% endif %})
+                    ({{ entry.start_date or '' }} — {% if entry.is_current %}Present{% else %}{{ entry.end_date or '' }}{% endif %})
                 </span>
             {% endif %}<br>
-            {% if deg.gpa %}GPA: {{ deg.gpa }}{% endif %}
-            {% if deg.honors %}{% if deg.gpa %} | {% endif %}{{ deg.honors }}{% endif %}
+            {% if entry.gpa %}GPA: {{ entry.gpa }}{% endif %}
+            {% if entry.honors %}{% if entry.gpa %} | {% endif %}{{ entry.honors }}{% endif %}
         </p>
-        {% endfor %}
-    </div>
-
-    <h2>Relevant Coursework</h2>
-    <div class="section">
-        {% for inst_name, inst_courses in courses|sort(attribute="institution_name")|groupby("institution_name") %}
-        <div style="margin-top: 10px;">
-            <div style="font-weight: bold; color: #2c3e50;">{{ inst_name or "Other" }}</div>
-            {% for course in inst_courses %}
-            <div class="course" style="margin-left: 12px;">
+        {% if entry.courses %}
+        <div style="margin-left: 12px; margin-bottom: 12px;">
+            {% for course in entry.courses %}
+            <div class="course">
                 <span class="course-name">{{ course.code }} — {{ course.name }}</span>
                 {% if course.grade or course.credits %}
                 <span style="color: #666; font-size: 12px;">
@@ -70,6 +64,7 @@
             </div>
             {% endfor %}
         </div>
+        {% endif %}
         {% endfor %}
     </div>
 
