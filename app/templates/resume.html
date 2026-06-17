@@ -37,9 +37,10 @@
 
     <h2>Education</h2>
     <div class="section">
-        {% for deg in degrees %}
+        {% for deg in degrees if deg.degree_name %}
         <p>
-            <strong>{{ deg.degree_name }}</strong>{% if deg.field %} — {{ deg.field }}{% endif %}<br>
+            <strong>{{ deg.degree_name }}</strong>
+            {% if deg.field and deg.field.lower() not in deg.degree_name.lower() %} — {{ deg.field }}{% endif %}<br>
             <em>{{ deg.institution_name }}</em>
             {% if deg.start_date or deg.end_date %}
                 <span style="color: #666;">
@@ -47,7 +48,7 @@
                 </span>
             {% endif %}<br>
             {% if deg.gpa %}GPA: {{ deg.gpa }}{% endif %}
-            {% if deg.honors %} — {{ deg.honors }}{% endif %}
+            {% if deg.honors %}{% if deg.gpa %} | {% endif %}{{ deg.honors }}{% endif %}
         </p>
         {% endfor %}
     </div>
@@ -57,16 +58,22 @@
         {% for course in courses %}
         <div class="course">
             <span class="course-name">{{ course.code }} — {{ course.name }}</span>
-            <span>(Grade: {{ course.grade }}, {{ course.credits }} credits)</span>
-            <p>{{ course.description }}</p>
+            {% if course.grade or course.credits %}
+            <span style="color: #666; font-size: 12px;">
+                ({% if course.grade %}Grade: {{ course.grade }}{% endif %}{% if course.grade and course.credits %}, {% endif %}{% if course.credits %}{{ course.credits }} credits{% endif %})
+            </span>
+            {% endif %}
+            {% if course.description %}<p>{{ course.description }}</p>{% endif %}
         </div>
         {% endfor %}
     </div>
 
-    <h2>Skills</h2>
-    <div class="section skills">
-        {% for skill in skills %}
-        <span class="skill">{{ skill }}</span>
+    <h2>Technical Skills</h2>
+    <div class="section">
+        {% for group in skill_groups %}
+        <div style="margin-bottom: 8px;">
+            <strong>{{ group.category }}:</strong> {{ group.skills | join(", ") }}
+        </div>
         {% endfor %}
     </div>
 

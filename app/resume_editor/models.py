@@ -15,16 +15,20 @@ DEFAULT_SECTION_ORDER = [
 
 def build_resume_data(user_id: int, db, title: str = "My Resume", template: str = "classic") -> Dict[str, Any]:
     """Build a fresh resume data object from the user's profile and education/experience tables."""
-    from app.auth import get_profile
-    from app.db.education import get_degrees, get_courses
-    from app.db.experience import get_work_experience, get_projects
+from app.auth import get_profile
+from app.ai.extractor import filter_resume_skills
+from app.db.education import get_degrees, get_courses
+from app.db.experience import get_work_experience, get_projects
 
     profile = get_profile(user_id) or {}
     degrees = get_degrees(user_id, db)
     courses = [c for c in get_courses(user_id, db) if c.get("is_major_related", 1)]
     work_exp = get_work_experience(user_id, db)
     projects = get_projects(user_id, db)
-    skills_rows = db.fetchall("SELECT name, category FROM skills WHERE user_id = ? ORDER BY category, name", (user_id,))
+    skills_rows = filter_resume_skills(
+        db.fetchall("SELECT name, category FROM skills WHERE user_id = ? ORDER BY category, name", (user_id,)),
+        max_skills=100
+    )
     certs_rows = db.fetchall("SELECT name, issuer, date_obtained FROM certificates WHERE user_id = ? ORDER BY date_obtained DESC", (user_id,))
 
     # Normalize education into editor-friendly format

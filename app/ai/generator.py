@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML, CSS
 from app.ai.client import AIClient
+from app.ai.extractor import filter_resume_skills
 from app.config import Config
 from app.db.experience import render_bullets
 
@@ -41,17 +42,19 @@ Job Description:
 {job_description}
 
 Generate resume content as a JSON object with this exact structure, no extra text before or after:
-{{"name": "Candidate Name", "summary": "Compelling professional summary tailored to this job", "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"]}}
+{{"name": "Candidate Name", "summary": "Concise professional summary tailored to this job", "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"]}}
 
 Rules:
 - Use the candidate's real name from the profile. Do NOT make up a name.
 - Use the candidate's real summary from the profile if available; you may tailor it slightly for the job.
+- Summary must be 3-4 lines maximum. Be concise and achievement-oriented. Do NOT list every course or skill.
 - Use only the provided work experience, projects, education, courses, skills, and certificates.
 - Do NOT invent fake experience, projects, degrees, or credentials.
 - The Work Experience, Projects, and Education sections should be rendered from the provided data, not from this JSON.
 - If no work experience is provided, leave it off the resume. Do NOT make up jobs.
 - If no projects are provided, leave them off the resume. Do NOT make up projects.
-- Select the most relevant major-related courses and certificates for this job.
+- Select only the most relevant major-related courses and certificates for this job (5-8 courses max).
+- Course names should be clean title case, not all caps.
 """
 
 COVER_LETTER_PROMPT = """You are an expert cover letter writer.
@@ -205,7 +208,18 @@ class DocumentGenerator:
         # Filter to major-related courses for the resume
         major_courses = [c for c in courses if c.get("is_major_related", 1)]
 
-        context = self._get_context(major_courses, skills, certificates, job, profile, degrees, work_experience, projects)
+        # Filter skills to job-relevant technical skills and group by category
+        resume_skills = filter_resume_skills(skills, max_skills=30)
+        skill_groups = {}
+        for s in resume_skills:
+            cat = s.get("category") or "Other"
+            skill_groups.setdefault(cat, []).append(s["name"])
+        skill_groups_sorted = [
+            {"category": cat, "skills": sorted(names)}
+            for cat, names in sorted(skill_groups.items())
+        ]
+
+        context = self._get_context(major_courses, resume_skills, certificates, job, profile, degrees, work_experience, projects)
         prompt = RESUME_GENERATION_PROMPT.format(**context)
         response = self.client.chat(prompt)
         data = json.loads(self._clean_json(response))
@@ -239,7 +253,8 @@ class DocumentGenerator:
             work_experience=formatted_experience,
             projects=projects,
             courses=data.get("highlighted_courses", major_courses[:10]),
-            skills=[s["name"] for s in skills],
+            skills=[s["name"] for s in resume_skills],
+            skill_groups=skill_groups_sorted,
             certs=data.get("highlighted_certs", [c["name"] for c in certificates])
         )
 

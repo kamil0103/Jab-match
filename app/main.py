@@ -287,7 +287,7 @@ elif page == "Education":
     with st.expander("Add Institution"):
         with st.form("add_institution_form"):
             inst_name = st.text_input("Institution Name", placeholder="University of Example")
-            inst_type = st.selectbox("Type", ["university", "community_college", "high_school", "certificate_organization", "other"])
+            inst_type = st.selectbox("Type", ["university", "community_college", "high_school", "transfer", "certificate_organization", "other"])
             inst_location = st.text_input("Location (City, State)", placeholder="Los Angeles, CA")
             add_inst = st.form_submit_button("Add Institution")
         if add_inst and inst_name:
@@ -300,8 +300,8 @@ elif page == "Education":
             with st.expander(f"{inst['name']} ({inst['institution_type']})"):
                 with st.form(f"edit_inst_{inst['id']}"):
                     edit_inst_name = st.text_input("Name", value=inst["name"], key=f"inst_name_{inst['id']}")
-                    edit_inst_type = st.selectbox("Type", ["university", "community_college", "high_school", "certificate_organization", "other"],
-                                                   index=["university", "community_college", "high_school", "certificate_organization", "other"].index(inst.get("institution_type", "other")),
+                    edit_inst_type = st.selectbox("Type", ["university", "community_college", "high_school", "transfer", "certificate_organization", "other"],
+                                                   index=["university", "community_college", "high_school", "transfer", "certificate_organization", "other"].index(inst.get("institution_type", "other")),
                                                    key=f"inst_type_{inst['id']}")
                     edit_inst_location = st.text_input("Location", value=inst.get("location", ""), key=f"inst_loc_{inst['id']}")
                     c1, c2 = st.columns(2)
@@ -654,8 +654,8 @@ elif page == "Upload Transcript":
         with st.form("review_form"):
             st.markdown("#### Institution Details")
             ri_name = st.text_input("Institution Name", value=inst_name_default, key="ri_name")
-            ri_type = st.selectbox("Type", ["university", "community_college", "high_school", "certificate_organization", "other"],
-                                   index=["university", "community_college", "high_school", "certificate_organization", "other"].index(inst_type_default),
+            ri_type = st.selectbox("Type", ["university", "community_college", "high_school", "transfer", "certificate_organization", "other"],
+                                   index=["university", "community_college", "high_school", "transfer", "certificate_organization", "other"].index(inst_type_default),
                                    key="ri_type")
             ri_location = st.text_input("Location", value=inst_location_default, key="ri_location")
 
