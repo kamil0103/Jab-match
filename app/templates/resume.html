@@ -68,6 +68,7 @@
         {% endfor %}
     </div>
 
+    {% if skill_groups %}
     <h2>Technical Skills</h2>
     <div class="section">
         {% for group in skill_groups %}
@@ -76,7 +77,9 @@
         </div>
         {% endfor %}
     </div>
+    {% endif %}
 
+    {% if certs %}
     <h2>Certifications</h2>
     <div class="section">
         <ul>
@@ -85,6 +88,7 @@
             {% endfor %}
         </ul>
     </div>
+    {% endif %}
 
     {% if work_experience %}
     <h2>Work Experience</h2>

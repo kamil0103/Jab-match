@@ -42,18 +42,21 @@ Job Description:
 {job_description}
 
 Generate resume content as a JSON object with this exact structure, no extra text before or after:
-{{"name": "Candidate Name", "summary": "Concise professional summary tailored to this job", "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"]}}
+{{"name": "Candidate Name", "summary": "Concise professional summary tailored to this job", "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"], "selected_skills": ["Python", "React", "AWS"], "selected_degree_ids": [1, 2]}}
 
 Rules:
 - Use the candidate's real name from the profile. Do NOT make up a name.
 - Use the candidate's real summary from the profile if available; you may tailor it slightly for the job.
 - Summary must be 3-4 lines maximum. Be concise and achievement-oriented. Do NOT list every course or skill.
 - Use only the provided work experience, projects, education, courses, skills, and certificates.
-- Do NOT invent fake experience, projects, degrees, or credentials.
+- Do NOT invent fake experience, projects, degrees, credentials, or skills.
 - The Work Experience, Projects, and Education sections should be rendered from the provided data, not from this JSON.
 - If no work experience is provided, leave it off the resume. Do NOT make up jobs.
 - If no projects are provided, leave them off the resume. Do NOT make up projects.
-- Select only the most relevant major-related courses and certificates for this job (5-8 courses max).
+- Return `selected_skills`: 8-15 most relevant skills for this job, chosen ONLY from the Candidate Skills list. Do NOT invent skills.
+- Return `selected_degree_ids`: IDs of the most relevant education entries for this job, chosen ONLY from the Candidate Education list. Omit high school or unrelated transfer institutions if a higher relevant degree is present.
+- Return `highlighted_certs`: only certificates relevant to this job from the Candidate Certificates list.
+- Select only the most relevant major-related courses for this job (5-8 courses max).
 - Course names should be clean title case, not all caps.
 """
 
@@ -208,16 +211,8 @@ class DocumentGenerator:
         # Filter to major-related courses for the resume
         major_courses = [c for c in courses if c.get("is_major_related", 1)]
 
-        # Filter skills to job-relevant technical skills and group by category
-        resume_skills = filter_resume_skills(skills, max_skills=30)
-        skill_groups = {}
-        for s in resume_skills:
-            cat = s.get("category") or "Other"
-            skill_groups.setdefault(cat, []).append(s["name"])
-        skill_groups_sorted = [
-            {"category": cat, "skills": sorted(names)}
-            for cat, names in sorted(skill_groups.items())
-        ]
+        # Pre-filter skills so the AI only sees job-relevant technical skills
+        resume_skills = filter_resume_skills(skills, max_skills=40)
 
         context = self._get_context(major_courses, resume_skills, certificates, job, profile, degrees, work_experience, projects)
         prompt = RESUME_GENERATION_PROMPT.format(**context)
@@ -236,6 +231,41 @@ class DocumentGenerator:
             "portfolio_url": profile.get("portfolio_url", ""),
         }
 
+        # Use AI selections, but validate against the user's actual data (no invented skills/certs/degrees)
+        user_skill_names = {s["name"] for s in skills}
+        selected_skill_names = [s for s in data.get("selected_skills", []) if s in user_skill_names]
+        if not selected_skill_names:
+            selected_skill_names = [s["name"] for s in resume_skills]
+        skill_by_name = {s["name"]: s for s in skills}
+        ordered_selected_skills = [skill_by_name[n] for n in selected_skill_names if n in skill_by_name]
+
+        skill_groups = {}
+        for s in ordered_selected_skills:
+            cat = s.get("category") or "Other"
+            skill_groups.setdefault(cat, []).append(s["name"])
+        skill_groups_sorted = [
+            {"category": cat, "skills": names}
+            for cat, names in sorted(skill_groups.items())
+        ]
+
+        user_cert_names = {c["name"] for c in certificates}
+        selected_certs = [c for c in data.get("highlighted_certs", []) if c in user_cert_names]
+        if not selected_certs:
+            selected_certs = [c["name"] for c in certificates]
+
+        user_degree_ids = {d["id"] for d in degrees}
+        selected_degree_ids = []
+        for did in data.get("selected_degree_ids", []):
+            try:
+                did_int = int(did)
+                if did_int in user_degree_ids:
+                    selected_degree_ids.append(did_int)
+            except (ValueError, TypeError):
+                pass
+        if not selected_degree_ids:
+            selected_degree_ids = [d["id"] for d in degrees if d.get("degree_name") and d.get("institution_type") != "high_school"]
+        selected_degrees = [d for d in degrees if d["id"] in selected_degree_ids]
+
         # Format work experience bullets as HTML lists for the template
         formatted_experience = []
         for exp in work_experience:
@@ -249,13 +279,13 @@ class DocumentGenerator:
             profile=safe_profile,
             name=name,
             summary=data.get("summary", profile.get("summary", "")),
-            degrees=degrees,
+            degrees=selected_degrees,
             work_experience=formatted_experience,
             projects=projects,
             courses=data.get("highlighted_courses", major_courses[:10]),
-            skills=[s["name"] for s in resume_skills],
+            skills=[s["name"] for s in ordered_selected_skills],
             skill_groups=skill_groups_sorted,
-            certs=data.get("highlighted_certs", [c["name"] for c in certificates])
+            certs=selected_certs
         )
 
         # Save PDF with professional filename if name is available
