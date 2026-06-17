@@ -2,6 +2,11 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
+from app.auth import get_profile
+from app.ai.extractor import filter_resume_skills
+from app.db.education import get_degrees, get_courses
+from app.db.experience import get_work_experience, get_projects
+
 
 DEFAULT_SECTION_ORDER = [
     "summary",
@@ -15,11 +20,6 @@ DEFAULT_SECTION_ORDER = [
 
 def build_resume_data(user_id: int, db, title: str = "My Resume", template: str = "classic") -> Dict[str, Any]:
     """Build a fresh resume data object from the user's profile and education/experience tables."""
-from app.auth import get_profile
-from app.ai.extractor import filter_resume_skills
-from app.db.education import get_degrees, get_courses
-from app.db.experience import get_work_experience, get_projects
-
     profile = get_profile(user_id) or {}
     degrees = get_degrees(user_id, db)
     courses = [c for c in get_courses(user_id, db) if c.get("is_major_related", 1)]
