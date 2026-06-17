@@ -18,6 +18,10 @@ from app.db.experience import (
     get_work_experience, add_work_experience, update_work_experience, delete_work_experience,
     get_projects, add_project, update_project, delete_project
 )
+from app.resume_editor import (
+    build_resume_data, save_resume_version, get_latest_resume_version,
+    render_resume_html, render_resume_pdf, ResumeAIHelper, ATSChecker
+)
 
 st.set_page_config(
     page_title="Job Matcher",
@@ -131,7 +135,7 @@ st.sidebar.markdown(f"**Logged in as:** `{user['username']}`")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Profile", "Education", "Experience", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
+    ["Dashboard", "Profile", "Education", "Experience", "Upload Transcript", "Skills & Certificates", "Resume Editor", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
 )
 
 st.sidebar.markdown("---")
@@ -925,6 +929,256 @@ elif page == "Skills & Certificates":
                     st.markdown(f"_{cert['description']}_")
     else:
         st.info("No certificates added yet. Add them above to include in job matching and resumes.")
+
+elif page == "Resume Editor":
+    st.title("Resume Editor")
+    st.markdown("Build and customize your resume section by section. AI can help improve wording, and the ATS checker gives quick feedback.")
+
+    # Load or initialize resume data
+    if "resume_data" not in st.session_state:
+        latest = get_latest_resume_version(user["id"], db)
+        if latest:
+            st.session_state.resume_data = latest
+        else:
+            st.session_state.resume_data = build_resume_data(user["id"], db)
+
+    resume_data = st.session_state.resume_data
+    ai_helper = ResumeAIHelper()
+
+    # Sidebar controls
+    st.sidebar.markdown("### Resume Controls")
+    template = st.sidebar.selectbox("Template", ["classic", "modern", "minimal"], index=["classic", "modern", "minimal"].index(resume_data.get("template", "classic")))
+    resume_data["template"] = template
+    resume_title = st.sidebar.text_input("Resume Title", value=resume_data.get("title", "My Resume"))
+    resume_data["title"] = resume_title
+
+    if st.sidebar.button("Reset from Profile Data", use_container_width=True):
+        st.session_state.resume_data = build_resume_data(user["id"], db, title=resume_title, template=template)
+        st.success("Resume reset from profile.")
+        st.rerun()
+
+    if st.sidebar.button("Save Version", use_container_width=True, type="primary"):
+        save_resume_version(user["id"], None, resume_data, db)
+        st.success("Resume version saved!")
+
+    # Editor layout
+    editor_tab, preview_tab, ats_tab = st.tabs(["Edit", "Preview", "ATS Check"])
+
+    with editor_tab:
+        # Profile section
+        with st.expander("Profile / Contact", expanded=True):
+            profile_sec = resume_data.get("profile", {})
+            c1, c2 = st.columns(2)
+            with c1:
+                profile_sec["full_name"] = st.text_input("Full Name", value=profile_sec.get("full_name", ""), key="re_full_name")
+                profile_sec["email"] = st.text_input("Email", value=profile_sec.get("email", ""), key="re_email")
+                profile_sec["phone"] = st.text_input("Phone", value=profile_sec.get("phone", ""), key="re_phone")
+                profile_sec["location"] = st.text_input("Location", value=profile_sec.get("location", ""), key="re_location")
+            with c2:
+                profile_sec["linkedin"] = st.text_input("LinkedIn", value=profile_sec.get("linkedin", ""), key="re_linkedin")
+                profile_sec["portfolio"] = st.text_input("Portfolio", value=profile_sec.get("portfolio", ""), key="re_portfolio")
+                profile_sec["github"] = st.text_input("GitHub", value=profile_sec.get("github", ""), key="re_github")
+            summary_col, ai_col = st.columns([3, 1])
+            with summary_col:
+                profile_sec["summary"] = st.text_area("Professional Summary", value=profile_sec.get("summary", ""), height=120, key="re_summary")
+            with ai_col:
+                st.markdown("&nbsp;")
+                if st.button("✨ Improve Summary", use_container_width=True):
+                    profile = get_profile(user["id"]) or {}
+                    improved = ai_helper.improve_summary(profile_sec.get("summary", ""), profile.get("target_roles", ""), profile)
+                    profile_sec["summary"] = improved
+                    st.session_state.resume_data = resume_data
+                    st.success("Summary updated")
+                    st.rerun()
+            resume_data["profile"] = profile_sec
+
+        # Section order
+        with st.expander("Section Order"):
+            current_order = resume_data.get("section_order", ["summary", "experience", "education", "skills", "projects", "certifications"])
+            for i, sec in enumerate(current_order):
+                cols = st.columns([4, 1, 1])
+                with cols[0]:
+                    st.markdown(f"**{i+1}. {sec.capitalize()}**")
+                with cols[1]:
+                    if st.button("⬆️", key=f"sec_up_{sec}"):
+                        if i > 0:
+                            current_order[i-1], current_order[i] = current_order[i], current_order[i-1]
+                            st.session_state.resume_data["section_order"] = current_order
+                            st.rerun()
+                with cols[2]:
+                    if st.button("⬇️", key=f"sec_down_{sec}"):
+                        if i < len(current_order) - 1:
+                            current_order[i], current_order[i+1] = current_order[i+1], current_order[i]
+                            st.session_state.resume_data["section_order"] = current_order
+                            st.rerun()
+
+        # Experience section
+        with st.expander("Experience"):
+            for idx, exp in enumerate(resume_data.get("experience", [])):
+                with st.container(border=True):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        exp["title"] = st.text_input("Title", value=exp.get("title", ""), key=f"re_exp_title_{idx}")
+                        exp["company"] = st.text_input("Company", value=exp.get("company", ""), key=f"re_exp_company_{idx}")
+                        exp["location"] = st.text_input("Location", value=exp.get("location", ""), key=f"re_exp_loc_{idx}")
+                    with c2:
+                        exp["start_date"] = st.text_input("Start", value=exp.get("start_date", ""), key=f"re_exp_start_{idx}")
+                        exp["end_date"] = st.text_input("End", value=exp.get("end_date", ""), key=f"re_exp_end_{idx}")
+                        exp["is_current"] = st.checkbox("Current", value=bool(exp.get("is_current", False)), key=f"re_exp_current_{idx}")
+                    bullets_col, ai_col = st.columns([3, 1])
+                    with bullets_col:
+                        exp["bullets"] = st.text_area("Bullet points (one per line)", value=exp.get("bullets", ""), height=120, key=f"re_exp_bullets_{idx}")
+                    with ai_col:
+                        st.markdown("&nbsp;")
+                        if st.button("✨ Improve Bullets", key=f"re_exp_ai_{idx}", use_container_width=True):
+                            improved = ai_helper.improve_bullets(exp.get("bullets", ""), exp.get("title", ""), exp.get("company", ""))
+                            exp["bullets"] = improved
+                            st.session_state.resume_data = resume_data
+                            st.success("Bullets updated")
+                            st.rerun()
+                    if st.button("Delete Experience", key=f"re_exp_del_{idx}", type="secondary"):
+                        resume_data["experience"].pop(idx)
+                        st.session_state.resume_data = resume_data
+                        st.rerun()
+            if st.button("+ Add Experience"):
+                resume_data.setdefault("experience", []).append({
+                    "title": "", "company": "", "location": "", "start_date": "", "end_date": "",
+                    "is_current": False, "bullets": ""
+                })
+                st.session_state.resume_data = resume_data
+                st.rerun()
+
+        # Education section
+        with st.expander("Education"):
+            for idx, edu in enumerate(resume_data.get("education", [])):
+                with st.container(border=True):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        edu["school"] = st.text_input("School", value=edu.get("school", ""), key=f"re_edu_school_{idx}")
+                        edu["degree"] = st.text_input("Degree", value=edu.get("degree", ""), key=f"re_edu_degree_{idx}")
+                        edu["field"] = st.text_input("Field", value=edu.get("field", ""), key=f"re_edu_field_{idx}")
+                    with c2:
+                        edu["graduation_date"] = st.text_input("Graduation Date", value=edu.get("graduation_date", ""), key=f"re_edu_grad_{idx}")
+                        edu["gpa"] = st.text_input("GPA", value=edu.get("gpa", ""), key=f"re_edu_gpa_{idx}")
+                        edu["honors"] = st.text_input("Honors", value=edu.get("honors", ""), key=f"re_edu_honors_{idx}")
+                        edu["is_current"] = st.checkbox("Current", value=bool(edu.get("is_current", False)), key=f"re_edu_current_{idx}")
+                    if st.button("Delete Education", key=f"re_edu_del_{idx}", type="secondary"):
+                        resume_data["education"].pop(idx)
+                        st.session_state.resume_data = resume_data
+                        st.rerun()
+            if st.button("+ Add Education"):
+                resume_data.setdefault("education", []).append({
+                    "school": "", "degree": "", "field": "", "graduation_date": "", "gpa": "", "honors": "", "is_current": False
+                })
+                st.session_state.resume_data = resume_data
+                st.rerun()
+
+        # Skills section
+        with st.expander("Skills"):
+            for idx, skill_group in enumerate(resume_data.get("skills", [])):
+                cols = st.columns([2, 3, 1])
+                with cols[0]:
+                    skill_group["category"] = st.text_input("Category", value=skill_group.get("category", ""), key=f"re_skill_cat_{idx}")
+                with cols[1]:
+                    skill_group["skills"] = st.text_input("Skills (comma separated)", value=", ".join(skill_group.get("skills", [])), key=f"re_skills_{idx}").split(",")
+                    skill_group["skills"] = [s.strip() for s in skill_group["skills"] if s.strip()]
+                with cols[2]:
+                    if st.button("Delete", key=f"re_skill_del_{idx}", type="secondary"):
+                        resume_data["skills"].pop(idx)
+                        st.session_state.resume_data = resume_data
+                        st.rerun()
+            if st.button("+ Add Skill Group"):
+                resume_data.setdefault("skills", []).append({"category": "", "skills": []})
+                st.session_state.resume_data = resume_data
+                st.rerun()
+            st.markdown("#### AI Skill Suggestions")
+            job_desc = st.text_area("Paste a job description for skill suggestions", height=80, key="re_job_desc_skills")
+            if st.button("Suggest Skills"):
+                all_skills = []
+                for g in resume_data.get("skills", []):
+                    all_skills.extend(g.get("skills", []))
+                suggestions = ai_helper.suggest_skills(job_desc, all_skills, profile_sec.get("summary", ""))
+                if suggestions:
+                    resume_data.setdefault("skills", []).append({"category": "Suggested", "skills": suggestions})
+                    st.session_state.resume_data = resume_data
+                    st.success(f"Added suggestions: {', '.join(suggestions)}")
+                    st.rerun()
+                else:
+                    st.info("No suggestions returned. Make sure AI is configured.")
+
+        # Projects section
+        with st.expander("Projects"):
+            for idx, proj in enumerate(resume_data.get("projects", [])):
+                with st.container(border=True):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        proj["name"] = st.text_input("Name", value=proj.get("name", ""), key=f"re_proj_name_{idx}")
+                        proj["technologies"] = st.text_input("Technologies", value=proj.get("technologies", ""), key=f"re_proj_tech_{idx}")
+                        proj["link"] = st.text_input("Link", value=proj.get("link", ""), key=f"re_proj_link_{idx}")
+                    with c2:
+                        proj["start_date"] = st.text_input("Start", value=proj.get("start_date", ""), key=f"re_proj_start_{idx}")
+                        proj["end_date"] = st.text_input("End", value=proj.get("end_date", ""), key=f"re_proj_end_{idx}")
+                        proj["is_current"] = st.checkbox("Current", value=bool(proj.get("is_current", False)), key=f"re_proj_current_{idx}")
+                    proj["description"] = st.text_area("Description", value=proj.get("description", ""), key=f"re_proj_desc_{idx}")
+                    if st.button("Delete Project", key=f"re_proj_del_{idx}", type="secondary"):
+                        resume_data["projects"].pop(idx)
+                        st.session_state.resume_data = resume_data
+                        st.rerun()
+            if st.button("+ Add Project"):
+                resume_data.setdefault("projects", []).append({
+                    "name": "", "description": "", "technologies": "", "link": "", "start_date": "", "end_date": "", "is_current": False
+                })
+                st.session_state.resume_data = resume_data
+                st.rerun()
+
+        # Certifications section
+        with st.expander("Certifications"):
+            for idx, cert in enumerate(resume_data.get("certifications", [])):
+                cols = st.columns([3, 2, 2, 1])
+                with cols[0]:
+                    cert["name"] = st.text_input("Name", value=cert.get("name", ""), key=f"re_cert_name_{idx}")
+                with cols[1]:
+                    cert["organization"] = st.text_input("Organization", value=cert.get("organization", ""), key=f"re_cert_org_{idx}")
+                with cols[2]:
+                    cert["date"] = st.text_input("Date", value=cert.get("date", ""), key=f"re_cert_date_{idx}")
+                with cols[3]:
+                    if st.button("Delete", key=f"re_cert_del_{idx}", type="secondary"):
+                        resume_data["certifications"].pop(idx)
+                        st.session_state.resume_data = resume_data
+                        st.rerun()
+            if st.button("+ Add Certification"):
+                resume_data.setdefault("certifications", []).append({"name": "", "organization": "", "date": ""})
+                st.session_state.resume_data = resume_data
+                st.rerun()
+
+    with preview_tab:
+        try:
+            html = render_resume_html(resume_data, template)
+            st.components.v1.html(html, height=800, scrolling=True)
+            if st.button("Export PDF", type="primary"):
+                pdf_path = render_resume_pdf(resume_data, template)
+                with open(pdf_path, "rb") as f:
+                    st.download_button("Download PDF", f, file_name=os.path.basename(pdf_path), mime="application/pdf")
+        except Exception as e:
+            st.error(f"Preview failed: {e}")
+
+    with ats_tab:
+        job_desc_ats = st.text_area("Paste job description (optional)", height=120, key="re_ats_job")
+        checker = ATSChecker(resume_data, job_desc_ats)
+        result = checker.check()
+        st.metric("ATS Score", f"{result['score']}/100")
+        st.progress(result["score"] / 100.0)
+        if result["issues"]:
+            st.markdown("#### Suggestions")
+            for issue in result["issues"]:
+                st.markdown(f"- {issue}")
+        else:
+            st.success("No major issues detected.")
+        if result["missing_keywords"]:
+            st.markdown("#### Missing Keywords")
+            st.markdown(", ".join(result["missing_keywords"]))
+
+    st.session_state.resume_data = resume_data
 
 elif page == "Discover Jobs":
     st.title("Discover Jobs")
