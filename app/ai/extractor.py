@@ -3,21 +3,38 @@ import re
 from typing import List, Dict, Any
 from app.ai.client import AIClient
 
-COURSE_EXTRACTION_PROMPT = """You are an expert academic transcript parser. Given the raw text extracted from a university transcript, extract all courses into a structured JSON format.
+COURSE_EXTRACTION_PROMPT = """You are an expert academic transcript parser. Given the raw text extracted from an academic transcript, extract institutions, degrees, and all courses into a structured JSON format.
 
 Return ONLY a valid JSON object with this exact structure (no markdown, no explanations, no extra text before or after):
-{{"courses": [{{"code": "CS101", "name": "Introduction to Computer Science", "grade": "A", "credits": 3.0, "description": "Brief description if available, otherwise infer from course name"}}], "university": "University Name", "degree": "Bachelor of Science in Computer Science", "gpa": "3.8", "transfer_credits": {{"institution": "Community College Name", "attempted": 64.0, "earned": 64.0, "gpa_units": 63.0, "points": 195.0, "transfer_gpa": 3.095}}}}
+{{
+  "institutions": [
+    {{"name": "University Name", "location": "City, State", "institution_type": "university"}}
+  ],
+  "degrees": [
+    {{"institution_name": "University Name", "degree_name": "Bachelor of Science in Computer Science", "degree_type": "bachelors", "field": "Computer Science", "start_date": "2020-08", "end_date": "2024-05", "gpa": "3.8", "honors": "Cum Laude", "is_current": false}}
+  ],
+  "courses": [
+    {{"code": "CS101", "name": "Introduction to Computer Science", "grade": "A", "credits": 3.0, "term": "Fall 2020", "institution_name": "University Name", "degree_name": "Bachelor of Science in Computer Science", "description": "Brief description if available, otherwise infer from course name"}}
+  ],
+  "transfer_credits": [
+    {{"institution_name": "Community College Name", "attempted": 64.0, "earned": 64.0, "gpa_units": 63.0, "points": 195.0, "transfer_gpa": 3.095}}
+  ]
+}}
 
 Rules:
-- Extract EVERY course listed in the transcript, including transfer credits if individual courses are listed
-- Also extract the transfer credit SUMMARY if present (institution name, attempted, earned, gpa_units, points, transfer_gpa)
-- If transfer credit section only shows totals (no individual courses), still include the transfer_credits object with the summary numbers
-- If no transfer credits exist, set transfer_credits to null
-- If a field is missing, use null or best inference
-- grade should be the letter grade (A, B+, etc.)
-- credits should be a number
-- description can be inferred from the course name if not explicitly stated
-- Output ONLY the JSON object, nothing else
+- Extract EVERY institution, degree, and course listed in the transcript.
+- Institution types: high_school, community_college, university, certificate_organization, other.
+- Degree types: high_school_diploma, associates, bachelors, masters, doctorate, certificate, other.
+- Each course must reference the institution_name and degree_name it belongs to. Use the exact institution/degree names from the institutions and degrees arrays.
+- For courses without a degree (e.g., high school classes), set degree_name to null.
+- Extract transfer credit SUMMARY if present (institution_name, attempted, earned, gpa_units, points, transfer_gpa).
+- If no transfer credits exist, use an empty array [] for transfer_credits.
+- If a field is missing, use null or best inference.
+- grade should be the letter grade (A, B+, etc.).
+- credits should be a number.
+- term is the semester/term (e.g., "Fall 2020", "Spring 2021").
+- description can be inferred from the course name if not explicitly stated.
+- Output ONLY the JSON object, nothing else.
 
 Transcript text:
 {text}

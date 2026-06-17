@@ -7,6 +7,7 @@ from app.parsers.transcript import parse_transcript
 from app.parsers.syllabus import parse_syllabus
 from app.ai.extractor import TranscriptExtractor
 from app.auth import login_user, register_user, get_user_paths, get_profile, update_profile
+from app.db.education import save_extracted_transcript, get_courses_grouped
 
 st.set_page_config(
     page_title="Job Matcher",
@@ -248,7 +249,7 @@ elif page == "Profile":
 
 elif page == "Upload Transcript":
     st.title("Upload Transcript")
-    st.markdown("Upload your university transcript (and optionally syllabi) to extract your skills using AI.")
+    st.markdown("Upload your academic transcript (and optionally syllabi) to extract your skills using AI. Courses will be organized by institution and degree.")
 
     transcript_file = st.file_uploader("Upload Transcript PDF", type=["pdf"])
     syllabus_files = st.file_uploader("Upload Syllabus PDFs (Optional)", type=["pdf"], accept_multiple_files=True)
@@ -267,22 +268,11 @@ elif page == "Upload Transcript":
                     try:
                         result = parse_transcript(save_path)
                         extracted = extractor.extract_courses(result["raw_text"])
+
+                        # Save institutions, degrees, courses, and transfer credits
+                        save_extracted_transcript(user["id"], extracted, db)
+
                         courses = extracted.get("courses", [])
-
-                        # Save courses to DB
-                        for c in courses:
-                            db.execute(
-                                "INSERT INTO courses (code, name, grade, credits, description) VALUES (?, ?, ?, ?, ?)",
-                                (c.get("code"), c.get("name"), c.get("grade"), c.get("credits"), c.get("description"))
-                            )
-
-                        # Save transfer credits if present
-                        transfer = extracted.get("transfer_credits")
-                        if transfer and isinstance(transfer, dict):
-                            db.execute(
-                                "INSERT OR REPLACE INTO transfer_credits (institution, attempted, earned, gpa_units, points, transfer_gpa) VALUES (?, ?, ?, ?, ?, ?)",
-                                (transfer.get("institution"), transfer.get("attempted"), transfer.get("earned"), transfer.get("gpa_units"), transfer.get("points"), transfer.get("transfer_gpa"))
-                            )
 
                         # Parse syllabi if any
                         syllabi_texts = []
@@ -295,45 +285,79 @@ elif page == "Upload Transcript":
                                 syllabi_texts.append(syl_data["raw_text"])
                             if syllabi_texts:
                                 courses = extractor.enhance_with_syllabi(courses, syllabi_texts)
+                                # Update descriptions in DB for enhanced courses
+                                for c in courses:
+                                    db.execute(
+                                        "UPDATE courses SET description = ? WHERE user_id = ? AND code = ? AND name = ? AND term = ?",
+                                        (c.get("description"), user["id"], c.get("code"), c.get("name"), c.get("term"))
+                                    )
 
                         # Extract skills
                         skills = extractor.extract_skills(courses)
                         for s in skills:
                             try:
                                 db.execute(
-                                    "INSERT OR IGNORE INTO skills (name, category, proficiency, source) VALUES (?, ?, ?, ?)",
-                                    (s.get("name"), s.get("category"), s.get("proficiency"), s.get("source"))
+                                    "INSERT OR IGNORE INTO skills (user_id, name, category, proficiency, source) VALUES (?, ?, ?, ?, ?)",
+                                    (user["id"], s.get("name"), s.get("category"), s.get("proficiency"), s.get("source"))
                                 )
                             except Exception:
                                 pass
 
                         st.success(f"Extracted {len(courses)} courses and {len(skills)} skills!")
-                        st.subheader("Courses")
-                        st.json(courses)
-                        if transfer:
-                            st.subheader("Transfer Credits")
-                            st.json(transfer)
-                        st.subheader("Skills")
-                        st.json(skills)
+                        st.session_state.last_extracted = extracted
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Extraction failed: {e}")
 
-    # Show existing courses
-    existing = db.fetchall("SELECT * FROM courses ORDER BY code")
-    if existing:
+    # Show extraction results if available
+    if st.session_state.get("last_extracted"):
+        extracted = st.session_state.last_extracted
         st.markdown("---")
-        st.subheader("Existing Courses")
-        for c in existing:
-            st.write(f"**{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']})")
+        st.subheader("Extracted Institutions & Degrees")
+        for inst in extracted.get("institutions", []):
+            st.write(f"**{inst.get('name')}** — {inst.get('institution_type')} ({inst.get('location') or 'no location'})")
+        for deg in extracted.get("degrees", []):
+            st.write(f"- {deg.get('degree_name')} ({deg.get('degree_type')}) at {deg.get('institution_name')}")
+
+    # Show existing courses grouped by institution and degree
+    grouped = get_courses_grouped(user["id"], db)
+    if grouped:
+        st.markdown("---")
+        st.subheader("Your Education")
+        for inst in grouped:
+            with st.expander(f"🏫 {inst['name']} ({inst['institution_type']})" if inst['id'] else f"📁 {inst['name']}"):
+                if inst.get("location"):
+                    st.write(f"Location: {inst['location']}")
+
+                for deg in inst.get("degrees", []):
+                    st.markdown(f"#### 🎓 {deg['degree_name']}")
+                    if deg.get("field"):
+                        st.write(f"Field: {deg['field']}")
+                    if deg.get("gpa"):
+                        st.write(f"GPA: {deg['gpa']}")
+                    if deg.get("start_date") or deg.get("end_date"):
+                        st.write(f"{deg.get('start_date', '')} — {deg.get('end_date', 'Present') if deg.get('is_current') else deg.get('end_date', '')}")
+                    if deg.get("courses"):
+                        for c in deg["courses"]:
+                            st.write(f"- **{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', 'N/A')})")
+                    else:
+                        st.caption("No courses assigned to this degree yet.")
+
+                if inst.get("unassigned_courses"):
+                    st.markdown("#### 📄 Unassigned Courses")
+                    for c in inst["unassigned_courses"]:
+                        st.write(f"- **{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', 'N/A')})")
 
     # Show transfer credits
-    transfer = db.fetchone("SELECT * FROM transfer_credits ORDER BY id DESC")
-    if transfer:
+    transfers = db.fetchall("SELECT * FROM transfer_credits WHERE user_id = ? ORDER BY id DESC", (user["id"],))
+    if transfers:
         st.markdown("---")
         st.subheader("Transfer Credits")
-        st.write(f"**Institution:** {transfer.get('institution', 'N/A')}")
-        st.write(f"**Attempted:** {transfer.get('attempted', 'N/A')} | **Earned:** {transfer.get('earned', 'N/A')} | **GPA Units:** {transfer.get('gpa_units', 'N/A')}")
-        st.write(f"**Transfer GPA:** {transfer.get('transfer_gpa', 'N/A')}")
+        for t in transfers:
+            st.write(f"**Institution:** {t.get('institution', 'N/A')}")
+            st.write(f"Attempted: {t.get('attempted', 'N/A')} | Earned: {t.get('earned', 'N/A')} | GPA Units: {t.get('gpa_units', 'N/A')}")
+            st.write(f"Transfer GPA: {t.get('transfer_gpa', 'N/A')}")
+            st.markdown("---")
 
 elif page == "Skills & Certificates":
     st.title("Skills & Certificates")
@@ -364,8 +388,8 @@ elif page == "Skills & Certificates":
         if submitted and new_name:
             try:
                 db.execute(
-                    "INSERT INTO skills (name, category, proficiency, source) VALUES (?, ?, ?, ?)",
-                    (new_name, new_category, new_proficiency, new_source)
+                    "INSERT INTO skills (user_id, name, category, proficiency, source) VALUES (?, ?, ?, ?, ?)",
+                    (user["id"], new_name, new_category, new_proficiency, new_source)
                 )
                 st.success(f"Added skill: {new_name}")
                 st.rerun()
@@ -455,8 +479,8 @@ elif page == "Skills & Certificates":
         if cert_submitted and cert_name:
             try:
                 db.execute(
-                    "INSERT INTO certificates (name, issuer, date_obtained, expiry, credential_id, url, description) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (cert_name, cert_issuer, cert_date or None, cert_expiry or None, cert_id or None, cert_url or None, cert_desc or None)
+                    "INSERT INTO certificates (user_id, name, issuer, date_obtained, expiry, credential_id, url, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user["id"], cert_name, cert_issuer, cert_date or None, cert_expiry or None, cert_id or None, cert_url or None, cert_desc or None)
                 )
                 st.success(f"Added certificate: {cert_name}")
                 st.rerun()
@@ -661,8 +685,8 @@ elif page == "Jobs":
                             st.warning(f"Could not fetch URL: {fetched}")
 
                 db.execute(
-                    "INSERT INTO jobs (title, company, url, description) VALUES (?, ?, ?, ?)",
-                    (job_title, company, job_url, final_desc)
+                    "INSERT INTO jobs (user_id, title, company, url, description) VALUES (?, ?, ?, ?, ?)",
+                    (user["id"], job_title, company, job_url, final_desc)
                 )
                 st.success("Job added!")
                 st.rerun()
@@ -820,8 +844,8 @@ elif page == "Generate Documents":
                                     shutil.move(filepath, user_filepath)
                                     filepath = user_filepath
                                 db.execute(
-                                    "INSERT INTO documents (job_id, doc_type, content, file_path) VALUES (?, ?, ?, ?)",
-                                    (job['id'], "resume", json.dumps(data), filepath)
+                                    "INSERT INTO documents (user_id, job_id, doc_type, content, file_path) VALUES (?, ?, ?, ?, ?)",
+                                    (user["id"], job['id'], "resume", json.dumps(data), filepath)
                                 )
                                 st.success(f"Resume generated!")
                                 with open(filepath, "rb") as f:
@@ -848,8 +872,8 @@ elif page == "Generate Documents":
                                     shutil.move(filepath, user_filepath)
                                     filepath = user_filepath
                                 db.execute(
-                                    "INSERT INTO documents (job_id, doc_type, content, file_path) VALUES (?, ?, ?, ?)",
-                                    (job['id'], "cover_letter", json.dumps(data), filepath)
+                                    "INSERT INTO documents (user_id, job_id, doc_type, content, file_path) VALUES (?, ?, ?, ?, ?)",
+                                    (user["id"], job['id'], "cover_letter", json.dumps(data), filepath)
                                 )
                                 st.success(f"Cover letter generated!")
                                 with open(filepath, "rb") as f:
@@ -870,8 +894,8 @@ elif page == "Generate Documents":
                             try:
                                 qna = gen.generate_qna(courses, skills, certificates, job, profile)
                                 db.execute(
-                                    "INSERT INTO documents (job_id, doc_type, content) VALUES (?, ?, ?)",
-                                    (job['id'], "qna", json.dumps(qna))
+                                    "INSERT INTO documents (user_id, job_id, doc_type, content) VALUES (?, ?, ?, ?)",
+                                    (user["id"], job['id'], "qna", json.dumps(qna))
                                 )
                                 st.success("Q&A generated!")
                                 for item in qna:
