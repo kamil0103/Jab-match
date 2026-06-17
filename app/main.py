@@ -1493,6 +1493,7 @@ elif page == "Generate Documents":
         courses = db.fetchall("SELECT * FROM courses")
         certificates = db.fetchall("SELECT * FROM certificates")
         degrees = get_degrees(user["id"], db)
+        institutions = get_institutions(user["id"], db)
         work_experience = get_work_experience(user["id"], db)
         projects = get_projects(user["id"], db)
 
@@ -1514,7 +1515,7 @@ elif page == "Generate Documents":
                         with st.spinner("Generating resume with AI..."):
                             try:
                                 data, filepath, html = gen.generate_resume(
-                                    courses, skills, certificates, job, profile, degrees, work_experience, projects
+                                    courses, skills, certificates, job, profile, degrees, work_experience, projects, institutions
                                 )
                                 # Ensure generated file goes to user's directory
                                 filename = os.path.basename(filepath)

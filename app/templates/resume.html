@@ -37,10 +37,10 @@
 
     <h2>Education</h2>
     <div class="section">
-        {% for deg in degrees if deg.degree_name %}
+        {% for deg in degrees if deg.degree_name or deg.institution_name %}
         <p>
-            <strong>{{ deg.degree_name }}</strong>
-            {% if deg.field and deg.field.lower() not in deg.degree_name.lower() %} — {{ deg.field }}{% endif %}<br>
+            <strong>{% if deg.degree_name %}{{ deg.degree_name }}{% else %}Relevant Coursework{% endif %}</strong>
+            {% if deg.field and (not deg.degree_name or deg.field.lower() not in deg.degree_name.lower()) %} — {{ deg.field }}{% endif %}<br>
             <em>{{ deg.institution_name }}</em>
             {% if deg.start_date or deg.end_date %}
                 <span style="color: #666;">
@@ -58,6 +58,7 @@
         {% for course in courses %}
         <div class="course">
             <span class="course-name">{{ course.code }} — {{ course.name }}</span>
+            {% if course.institution_name %}<span style="color: #666; font-size: 12px;"> — {{ course.institution_name }}{% if course.degree_name %} ({{ course.degree_name }}){% endif %}</span>{% endif %}
             {% if course.grade or course.credits %}
             <span style="color: #666; font-size: 12px;">
                 ({% if course.grade %}Grade: {{ course.grade }}{% endif %}{% if course.grade and course.credits %}, {% endif %}{% if course.credits %}{{ course.credits }} credits{% endif %})

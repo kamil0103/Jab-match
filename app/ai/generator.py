@@ -23,6 +23,9 @@ Candidate Profile:
 Candidate Education:
 {degrees_json}
 
+Candidate Institutions:
+{institutions_json}
+
 Candidate Work Experience:
 {experience_json}
 
@@ -138,10 +141,12 @@ class DocumentGenerator:
 
     def _get_context(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict,
                      profile: Optional[Dict] = None, degrees: Optional[List[Dict]] = None,
-                     work_experience: Optional[List[Dict]] = None, projects: Optional[List[Dict]] = None) -> Dict[str, Any]:
+                     work_experience: Optional[List[Dict]] = None, projects: Optional[List[Dict]] = None,
+                     institutions: Optional[List[Dict]] = None) -> Dict[str, Any]:
         return {
             "profile_json": json.dumps(profile or {}, indent=2),
             "degrees_json": json.dumps(degrees or [], indent=2),
+            "institutions_json": json.dumps(institutions or [], indent=2),
             "experience_json": json.dumps(work_experience or [], indent=2),
             "projects_json": json.dumps(projects or [], indent=2),
             "courses_json": json.dumps(courses, indent=2),
@@ -202,9 +207,11 @@ class DocumentGenerator:
 
     def generate_resume(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict,
                         profile: Optional[Dict] = None, degrees: Optional[List[Dict]] = None,
-                        work_experience: Optional[List[Dict]] = None, projects: Optional[List[Dict]] = None) -> tuple:
+                        work_experience: Optional[List[Dict]] = None, projects: Optional[List[Dict]] = None,
+                        institutions: Optional[List[Dict]] = None) -> tuple:
         profile = profile or {}
         degrees = degrees or []
+        institutions = institutions or []
         work_experience = work_experience or []
         projects = projects or []
 
@@ -214,7 +221,7 @@ class DocumentGenerator:
         # Pre-filter skills so the AI only sees job-relevant technical skills
         resume_skills = filter_resume_skills(skills, max_skills=40)
 
-        context = self._get_context(major_courses, resume_skills, certificates, job, profile, degrees, work_experience, projects)
+        context = self._get_context(major_courses, resume_skills, certificates, job, profile, degrees, work_experience, projects, institutions)
         prompt = RESUME_GENERATION_PROMPT.format(**context)
         response = self.client.chat(prompt)
         data = json.loads(self._clean_json(response))
@@ -250,8 +257,6 @@ class DocumentGenerator:
 
         user_cert_names = {c["name"] for c in certificates}
         selected_certs = [c for c in data.get("highlighted_certs", []) if c in user_cert_names]
-        if not selected_certs:
-            selected_certs = [c["name"] for c in certificates]
 
         user_degree_ids = {d["id"] for d in degrees}
         selected_degree_ids = []
@@ -266,6 +271,43 @@ class DocumentGenerator:
             selected_degree_ids = [d["id"] for d in degrees if d.get("degree_name") and d.get("institution_type") != "high_school"]
         selected_degrees = [d for d in degrees if d["id"] in selected_degree_ids]
 
+        # Enrich highlighted courses with institution/degree names and include institutions
+        # that contributed relevant courses but don't have a selected degree.
+        institutions_map = {i["id"]: i for i in institutions}
+        degrees_map = {d["id"]: d for d in degrees}
+        course_lookup = {(c.get("code", ""), c.get("name", "")): c for c in major_courses}
+        highlighted_courses = data.get("highlighted_courses", major_courses[:10])
+        selected_institution_ids = {d.get("institution_id") for d in selected_degrees if d.get("institution_id")}
+        additional_edu_entries = []
+
+        for hc in highlighted_courses:
+            key = (hc.get("code", ""), hc.get("name", ""))
+            orig = course_lookup.get(key)
+            if orig:
+                inst_id = orig.get("institution_id")
+                deg_id = orig.get("degree_id")
+                hc["institution_name"] = institutions_map.get(inst_id, {}).get("name", "")
+                hc["degree_name"] = degrees_map.get(deg_id, {}).get("degree_name", "")
+                if inst_id and inst_id not in selected_institution_ids and inst_id in institutions_map:
+                    selected_institution_ids.add(inst_id)
+                    inst = institutions_map[inst_id]
+                    additional_edu_entries.append({
+                        "id": None,
+                        "degree_name": "",
+                        "degree_type": "other",
+                        "field": "",
+                        "institution_name": inst.get("name", ""),
+                        "institution_type": inst.get("institution_type", "other"),
+                        "location": inst.get("location", ""),
+                        "start_date": "",
+                        "end_date": "",
+                        "gpa": "",
+                        "honors": "",
+                        "is_current": False
+                    })
+
+        education_entries = selected_degrees + additional_edu_entries
+
         # Format work experience bullets as HTML lists for the template
         formatted_experience = []
         for exp in work_experience:
@@ -279,10 +321,10 @@ class DocumentGenerator:
             profile=safe_profile,
             name=name,
             summary=data.get("summary", profile.get("summary", "")),
-            degrees=selected_degrees,
+            degrees=education_entries,
             work_experience=formatted_experience,
             projects=projects,
-            courses=data.get("highlighted_courses", major_courses[:10]),
+            courses=highlighted_courses,
             skills=[s["name"] for s in ordered_selected_skills],
             skill_groups=skill_groups_sorted,
             certs=selected_certs
