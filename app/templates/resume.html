@@ -37,8 +37,19 @@
 
     <h2>Education</h2>
     <div class="section">
-        <p><strong>{{ university }}</strong> — {{ degree }}</p>
-        <p>GPA: {{ gpa }}</p>
+        {% for deg in degrees %}
+        <p>
+            <strong>{{ deg.degree_name }}</strong>{% if deg.field %} — {{ deg.field }}{% endif %}<br>
+            <em>{{ deg.institution_name }}</em>
+            {% if deg.start_date or deg.end_date %}
+                <span style="color: #666;">
+                    ({{ deg.start_date or '' }} — {% if deg.is_current %}Present{% else %}{{ deg.end_date or '' }}{% endif %})
+                </span>
+            {% endif %}<br>
+            {% if deg.gpa %}GPA: {{ deg.gpa }}{% endif %}
+            {% if deg.honors %} — {{ deg.honors }}{% endif %}
+        </p>
+        {% endfor %}
     </div>
 
     <h2>Relevant Coursework</h2>

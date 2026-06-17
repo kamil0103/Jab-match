@@ -7,7 +7,13 @@ from app.parsers.transcript import parse_transcript
 from app.parsers.syllabus import parse_syllabus
 from app.ai.extractor import TranscriptExtractor
 from app.auth import login_user, register_user, get_user_paths, get_profile, update_profile
-from app.db.education import save_extracted_transcript, get_courses_grouped
+from app.db.education import (
+    get_institutions, get_degrees, get_courses, get_courses_grouped,
+    add_institution, update_institution, delete_institution,
+    add_degree, update_degree, delete_degree,
+    add_course, update_course, delete_course, move_course,
+    find_matching_institution, find_matching_degree, save_from_review
+)
 
 st.set_page_config(
     page_title="Job Matcher",
@@ -121,7 +127,7 @@ st.sidebar.markdown(f"**Logged in as:** `{user['username']}`")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Profile", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
+    ["Dashboard", "Profile", "Education", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
 )
 
 st.sidebar.markdown("---")
@@ -247,34 +253,205 @@ elif page == "Profile":
     if links:
         st.markdown(" | ".join(links))
 
+    st.markdown("---")
+    st.subheader("Education Summary")
+    grouped = get_courses_grouped(user["id"], db)
+    if grouped:
+        for inst in grouped:
+            st.markdown(f"**{inst['name']}** ({inst['institution_type']})")
+            for deg in inst.get("degrees", []):
+                st.markdown(f"- {deg['degree_name']} — {deg.get('field', '')} ({len(deg['courses'])} courses)")
+    else:
+        st.info("No education added yet. Go to the **Education** page to add your degrees and institutions.")
+
+elif page == "Education":
+    st.title("Education")
+    st.markdown("Manage your institutions, degrees, and courses. Add degrees here first, then upload transcripts and match them.")
+
+    # Helper refresh
+    institutions = get_institutions(user["id"], db)
+    degrees = get_degrees(user["id"], db)
+    courses = get_courses(user["id"], db)
+
+    # ============== INSTITUTIONS ==============
+    st.markdown("---")
+    st.header("Institutions")
+    with st.expander("Add Institution"):
+        with st.form("add_institution_form"):
+            inst_name = st.text_input("Institution Name", placeholder="University of Example")
+            inst_type = st.selectbox("Type", ["university", "community_college", "high_school", "certificate_organization", "other"])
+            inst_location = st.text_input("Location (City, State)", placeholder="Los Angeles, CA")
+            add_inst = st.form_submit_button("Add Institution")
+        if add_inst and inst_name:
+            add_institution(user["id"], inst_name, inst_type, inst_location, db)
+            st.success(f"Added {inst_name}")
+            st.rerun()
+
+    if institutions:
+        for inst in institutions:
+            with st.expander(f"{inst['name']} ({inst['institution_type']})"):
+                with st.form(f"edit_inst_{inst['id']}"):
+                    edit_inst_name = st.text_input("Name", value=inst["name"], key=f"inst_name_{inst['id']}")
+                    edit_inst_type = st.selectbox("Type", ["university", "community_college", "high_school", "certificate_organization", "other"],
+                                                   index=["university", "community_college", "high_school", "certificate_organization", "other"].index(inst.get("institution_type", "other")),
+                                                   key=f"inst_type_{inst['id']}")
+                    edit_inst_location = st.text_input("Location", value=inst.get("location", ""), key=f"inst_loc_{inst['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        save_inst = st.form_submit_button("Save")
+                    with c2:
+                        delete_inst = st.form_submit_button("Delete", type="secondary")
+                if save_inst:
+                    update_institution(user["id"], inst["id"], edit_inst_name, edit_inst_type, edit_inst_location, db)
+                    st.success("Institution updated")
+                    st.rerun()
+                if delete_inst:
+                    delete_institution(user["id"], inst["id"], db)
+                    st.success("Institution deleted")
+                    st.rerun()
+    else:
+        st.info("No institutions yet. Add one above.")
+
+    # ============== DEGREES ==============
+    st.markdown("---")
+    st.header("Degrees")
+    with st.expander("Add Degree"):
+        with st.form("add_degree_form"):
+            deg_inst = st.selectbox("Institution", [i["name"] for i in institutions], disabled=not institutions)
+            deg_name = st.text_input("Degree Name", placeholder="Bachelor of Science in Computer Science")
+            deg_type = st.selectbox("Degree Type", ["high_school_diploma", "associates", "bachelors", "masters", "doctorate", "certificate", "other"])
+            deg_field = st.text_input("Field of Study", placeholder="Computer Science")
+            c1, c2 = st.columns(2)
+            with c1:
+                deg_start = st.text_input("Start Date (YYYY-MM)", placeholder="2020-08")
+            with c2:
+                deg_end = st.text_input("End Date (YYYY-MM)", placeholder="2024-05")
+            deg_gpa = st.text_input("GPA", placeholder="3.8")
+            deg_honors = st.text_input("Honors", placeholder="Cum Laude")
+            deg_current = st.checkbox("Currently enrolled")
+            add_deg = st.form_submit_button("Add Degree")
+        if add_deg and deg_name and institutions:
+            inst_id = next(i["id"] for i in institutions if i["name"] == deg_inst)
+            add_degree(user["id"], inst_id, deg_name, deg_type, deg_field, deg_start, deg_end, deg_gpa, deg_honors, deg_current, db)
+            st.success(f"Added {deg_name}")
+            st.rerun()
+
+    if degrees:
+        for deg in degrees:
+            with st.expander(f"{deg['degree_name']} at {deg.get('institution_name', 'Unknown')}"):
+                with st.form(f"edit_deg_{deg['id']}"):
+                    edit_deg_inst = st.selectbox("Institution", [i["name"] for i in institutions],
+                                                  index=[i["name"] for i in institutions].index(deg.get("institution_name", institutions[0]["name"])) if institutions else 0,
+                                                  key=f"deg_inst_{deg['id']}")
+                    edit_deg_name = st.text_input("Degree Name", value=deg["degree_name"], key=f"deg_name_{deg['id']}")
+                    type_options = ["high_school_diploma", "associates", "bachelors", "masters", "doctorate", "certificate", "other"]
+                    edit_deg_type = st.selectbox("Degree Type", type_options,
+                                                 index=type_options.index(deg.get("degree_type", "other")),
+                                                 key=f"deg_type_{deg['id']}")
+                    edit_deg_field = st.text_input("Field", value=deg.get("field", ""), key=f"deg_field_{deg['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        edit_deg_start = st.text_input("Start Date", value=deg.get("start_date", ""), key=f"deg_start_{deg['id']}")
+                    with c2:
+                        edit_deg_end = st.text_input("End Date", value=deg.get("end_date", ""), key=f"deg_end_{deg['id']}")
+                    edit_deg_gpa = st.text_input("GPA", value=deg.get("gpa", ""), key=f"deg_gpa_{deg['id']}")
+                    edit_deg_honors = st.text_input("Honors", value=deg.get("honors", ""), key=f"deg_honors_{deg['id']}")
+                    edit_deg_current = st.checkbox("Currently enrolled", value=bool(deg.get("is_current")), key=f"deg_current_{deg['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        save_deg = st.form_submit_button("Save")
+                    with c2:
+                        delete_deg = st.form_submit_button("Delete", type="secondary")
+                if save_deg and institutions:
+                    inst_id = next(i["id"] for i in institutions if i["name"] == edit_deg_inst)
+                    update_degree(user["id"], deg["id"], inst_id, edit_deg_name, edit_deg_type, edit_deg_field,
+                                  edit_deg_start, edit_deg_end, edit_deg_gpa, edit_deg_honors, edit_deg_current, db)
+                    st.success("Degree updated")
+                    st.rerun()
+                if delete_deg:
+                    delete_degree(user["id"], deg["id"], db)
+                    st.success("Degree deleted")
+                    st.rerun()
+    else:
+        st.info("No degrees yet. Add one above.")
+
+    # ============== COURSES ==============
+    st.markdown("---")
+    st.header("Courses")
+    if courses:
+        st.markdown("Toggle **Major Related** to control which courses appear on your resume.")
+        for c in courses:
+            cols = st.columns([2, 2, 1, 1, 1, 1, 1])
+            with cols[0]:
+                st.markdown(f"**{c['code']}** — {c['name']}")
+            with cols[1]:
+                st.markdown(f"Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', '')}")
+            with cols[2]:
+                is_major = bool(c.get("is_major_related", 1))
+                if st.checkbox("Major", value=is_major, key=f"major_{c['id']}") != is_major:
+                    from app.db.education import update_course_major_related
+                    update_course_major_related(user["id"], c["id"], not is_major, db)
+                    st.rerun()
+            with cols[3]:
+                if st.button("Edit", key=f"edit_course_{c['id']}"):
+                    st.session_state[f"edit_course_open_{c['id']}"] = True
+                    st.rerun()
+            with cols[4]:
+                if st.button("Delete", key=f"del_course_{c['id']}"):
+                    delete_course(user["id"], c["id"], db)
+                    st.rerun()
+
+            if st.session_state.get(f"edit_course_open_{c['id']}", False):
+                with st.form(f"edit_course_form_{c['id']}"):
+                    ec_code = st.text_input("Code", value=c.get("code", ""), key=f"ec_code_{c['id']}")
+                    ec_name = st.text_input("Name", value=c.get("name", ""), key=f"ec_name_{c['id']}")
+                    ec_grade = st.text_input("Grade", value=c.get("grade", ""), key=f"ec_grade_{c['id']}")
+                    ec_credits = st.number_input("Credits", value=float(c.get("credits") or 0), key=f"ec_credits_{c['id']}")
+                    ec_term = st.text_input("Term", value=c.get("term", ""), key=f"ec_term_{c['id']}")
+                    ec_desc = st.text_area("Description", value=c.get("description", ""), key=f"ec_desc_{c['id']}")
+                    ec_major = st.checkbox("Major related", value=bool(c.get("is_major_related", 1)), key=f"ec_major_{c['id']}")
+                    degree_options = [(None, "Unassigned")] + [(d["id"], d["degree_name"]) for d in degrees]
+                    current_deg = c.get("degree_id")
+                    ec_deg_idx = next((i for i, (did, _) in enumerate(degree_options) if did == current_deg), 0)
+                    ec_deg = st.selectbox("Degree", [d[1] for d in degree_options], index=ec_deg_idx, key=f"ec_deg_{c['id']}")
+                    save_ec = st.form_submit_button("Save")
+                if save_ec:
+                    deg_id = degree_options[[d[1] for d in degree_options].index(ec_deg)][0]
+                    update_course(user["id"], c["id"], None, deg_id, ec_code, ec_name, ec_grade, ec_credits, ec_term, ec_desc, ec_major, db)
+                    st.session_state.pop(f"edit_course_open_{c['id']}", None)
+                    st.success("Course updated")
+                    st.rerun()
+    else:
+        st.info("No courses yet. Upload a transcript to add courses.")
+
 elif page == "Upload Transcript":
     st.title("Upload Transcript")
-    st.markdown("Upload your academic transcript (and optionally syllabi) to extract your skills using AI. Courses will be organized by institution and degree.")
+    st.markdown("Upload an academic transcript. The AI will extract the institution, degree, and courses, then you review and confirm before saving.")
+
+    # Initialize review state
+    if "transcript_review" not in st.session_state:
+        st.session_state.transcript_review = None
 
     transcript_file = st.file_uploader("Upload Transcript PDF", type=["pdf"])
     syllabus_files = st.file_uploader("Upload Syllabus PDFs (Optional)", type=["pdf"], accept_multiple_files=True)
 
-    if transcript_file:
+    if transcript_file and not st.session_state.transcript_review:
         save_path = os.path.join(user_paths["uploads_dir"], transcript_file.name)
         with open(save_path, "wb") as f:
             f.write(transcript_file.getbuffer())
-        st.success(f"Saved {transcript_file.name}")
+        st.success(f"Saved {save_path}")
 
-        if st.button("Extract Courses & Skills"):
+        if st.button("Extract Courses"):
             if not Config.ai_available():
                 st.error("AI not configured. Add GEMINI_API_KEY to .env")
             else:
                 with st.spinner("Parsing transcript with AI..."):
                     try:
                         result = parse_transcript(save_path)
-                        extracted = extractor.extract_courses(result["raw_text"])
+                        raw_text = result["raw_text"]
+                        extracted = extractor.extract_courses(raw_text)
 
-                        # Save institutions, degrees, courses, and transfer credits
-                        save_extracted_transcript(user["id"], extracted, db)
-
-                        courses = extracted.get("courses", [])
-
-                        # Parse syllabi if any
+                        # Optional syllabus enhancement
                         syllabi_texts = []
                         if syllabus_files:
                             for syl in syllabus_files:
@@ -284,42 +461,167 @@ elif page == "Upload Transcript":
                                 syl_data = parse_syllabus(syl_path)
                                 syllabi_texts.append(syl_data["raw_text"])
                             if syllabi_texts:
-                                courses = extractor.enhance_with_syllabi(courses, syllabi_texts)
-                                # Update descriptions in DB for enhanced courses
-                                for c in courses:
-                                    db.execute(
-                                        "UPDATE courses SET description = ? WHERE user_id = ? AND code = ? AND name = ? AND term = ?",
-                                        (c.get("description"), user["id"], c.get("code"), c.get("name"), c.get("term"))
-                                    )
+                                enhanced = extractor.enhance_with_syllabi(extracted.get("courses", []), syllabi_texts)
+                                for c, e in zip(extracted.get("courses", []), enhanced):
+                                    c["description"] = e.get("description", c.get("description", ""))
 
-                        # Extract skills
-                        skills = extractor.extract_skills(courses)
-                        for s in skills:
-                            try:
-                                db.execute(
-                                    "INSERT OR IGNORE INTO skills (user_id, name, category, proficiency, source) VALUES (?, ?, ?, ?, ?)",
-                                    (user["id"], s.get("name"), s.get("category"), s.get("proficiency"), s.get("source"))
-                                )
-                            except Exception:
-                                pass
-
-                        st.success(f"Extracted {len(courses)} courses and {len(skills)} skills!")
-                        st.session_state.last_extracted = extracted
+                        st.session_state.transcript_review = {
+                            "extracted": extracted,
+                            "raw_text": raw_text,
+                            "save_path": save_path
+                        }
                         st.rerun()
                     except Exception as e:
                         st.error(f"Extraction failed: {e}")
 
-    # Show extraction results if available
-    if st.session_state.get("last_extracted"):
-        extracted = st.session_state.last_extracted
-        st.markdown("---")
-        st.subheader("Extracted Institutions & Degrees")
-        for inst in extracted.get("institutions", []):
-            st.write(f"**{inst.get('name')}** — {inst.get('institution_type')} ({inst.get('location') or 'no location'})")
-        for deg in extracted.get("degrees", []):
-            st.write(f"- {deg.get('degree_name')} ({deg.get('degree_type')}) at {deg.get('institution_name')}")
+    # ============== REVIEW & CONFIRM ==============
+    review = st.session_state.transcript_review
+    if review:
+        extracted = review["extracted"]
+        institutions = get_institutions(user["id"], db)
+        degrees = get_degrees(user["id"], db)
 
-    # Show existing courses grouped by institution and degree
+        ext_insts = extracted.get("institutions", [])
+        ext_degs = extracted.get("degrees", [])
+        ext_courses = extracted.get("courses", [])
+
+        if len(ext_insts) > 1 or len(ext_degs) > 1:
+            st.warning("This transcript seems to contain multiple institutions or degrees. Only the first one will be matched in this review; manage the rest on the Education page.")
+
+        ext_inst = ext_insts[0] if ext_insts else {}
+        ext_deg = ext_degs[0] if ext_degs else {}
+
+        st.markdown("---")
+        st.subheader("Review Extracted Data")
+
+        # Match to existing (outside form so they update immediately)
+        col_match_inst, col_match_deg = st.columns(2)
+        with col_match_inst:
+            inst_options = [(None, "Create new institution")] + [(i["id"], i["name"]) for i in institutions]
+            matched_inst = find_matching_institution(user["id"], ext_inst.get("name", ""), db)
+            default_inst_idx = next((idx for idx, (iid, _) in enumerate(inst_options) if iid == (matched_inst["id"] if matched_inst else None)), 0)
+            selected_inst_label = st.selectbox("Match institution to", [name for _, name in inst_options], index=default_inst_idx, key="review_inst")
+            selected_inst_id = inst_options[[name for _, name in inst_options].index(selected_inst_label)][0]
+            selected_inst = next((i for i in institutions if i["id"] == selected_inst_id), None)
+
+        with col_match_deg:
+            degree_options = [(None, "Create new degree")] + [(d["id"], d["degree_name"]) for d in degrees]
+            matched_degree = None
+            if selected_inst_id:
+                matched_degree = find_matching_degree(user["id"], selected_inst_id, ext_deg.get("degree_name", ""), db)
+            default_deg_idx = next((idx for idx, (did, _) in enumerate(degree_options) if did == (matched_degree["id"] if matched_degree else None)), 0)
+            selected_deg_label = st.selectbox("Match degree to", [name for _, name in degree_options], index=default_deg_idx, key="review_deg")
+            selected_deg_id = degree_options[[name for _, name in degree_options].index(selected_deg_label)][0]
+            selected_deg = next((d for d in degrees if d["id"] == selected_deg_id), None)
+
+        # Pre-fill values from existing selection or extracted data
+        inst_name_default = selected_inst["name"] if selected_inst else ext_inst.get("name", "")
+        inst_type_default = selected_inst["institution_type"] if selected_inst else ext_inst.get("institution_type", "other")
+        inst_location_default = selected_inst.get("location", "") if selected_inst else ext_inst.get("location", "")
+
+        deg_name_default = selected_deg["degree_name"] if selected_deg else ext_deg.get("degree_name", "")
+        deg_type_default = selected_deg["degree_type"] if selected_deg else ext_deg.get("degree_type", "other")
+        deg_field_default = selected_deg.get("field", "") if selected_deg else ext_deg.get("field", "")
+        deg_start_default = selected_deg.get("start_date", "") if selected_deg else ext_deg.get("start_date", "")
+        deg_end_default = selected_deg.get("end_date", "") if selected_deg else ext_deg.get("end_date", "")
+        deg_gpa_default = selected_deg.get("gpa", "") if selected_deg else ext_deg.get("gpa", "")
+        deg_honors_default = selected_deg.get("honors", "") if selected_deg else ext_deg.get("honors", "")
+        deg_current_default = bool(selected_deg.get("is_current")) if selected_deg else bool(ext_deg.get("is_current", False))
+
+        with st.form("review_form"):
+            st.markdown("#### Institution Details")
+            ri_name = st.text_input("Institution Name", value=inst_name_default, key="ri_name")
+            ri_type = st.selectbox("Type", ["university", "community_college", "high_school", "certificate_organization", "other"],
+                                   index=["university", "community_college", "high_school", "certificate_organization", "other"].index(inst_type_default),
+                                   key="ri_type")
+            ri_location = st.text_input("Location", value=inst_location_default, key="ri_location")
+
+            st.markdown("#### Degree Details")
+            rd_name = st.text_input("Degree Name", value=deg_name_default, key="rd_name")
+            rd_type = st.selectbox("Degree Type", ["high_school_diploma", "associates", "bachelors", "masters", "doctorate", "certificate", "other"],
+                                   index=["high_school_diploma", "associates", "bachelors", "masters", "doctorate", "certificate", "other"].index(deg_type_default),
+                                   key="rd_type")
+            rd_field = st.text_input("Field", value=deg_field_default, key="rd_field")
+            c1, c2 = st.columns(2)
+            with c1:
+                rd_start = st.text_input("Start Date", value=deg_start_default, key="rd_start")
+            with c2:
+                rd_end = st.text_input("End Date", value=deg_end_default, key="rd_end")
+            rd_gpa = st.text_input("GPA", value=deg_gpa_default, key="rd_gpa")
+            rd_honors = st.text_input("Honors", value=deg_honors_default, key="rd_honors")
+            rd_current = st.checkbox("Currently enrolled", value=deg_current_default, key="rd_current")
+
+            st.markdown(f"#### Courses ({len(ext_courses)})")
+            st.markdown("Toggle **Major Related** for each course. Only major-related courses will appear on your resume by default.")
+            for idx, c in enumerate(ext_courses):
+                cols = st.columns([3, 2, 1])
+                with cols[0]:
+                    st.markdown(f"**{c.get('code', '')}** — {c.get('name', '')}")
+                with cols[1]:
+                    st.markdown(f"Grade: {c.get('grade', '')}, Credits: {c.get('credits', '')}, Term: {c.get('term', '')}")
+                with cols[2]:
+                    st.checkbox("Major related", value=True, key=f"review_major_{idx}")
+
+            save_review = st.form_submit_button("✅ Save to My Education", type="primary")
+
+        if save_review:
+            review_data = {
+                "institution": {
+                    "id": selected_inst_id,
+                    "name": ri_name,
+                    "institution_type": ri_type,
+                    "location": ri_location
+                },
+                "degree": {
+                    "id": selected_deg_id,
+                    "degree_name": rd_name,
+                    "degree_type": rd_type,
+                    "field": rd_field,
+                    "start_date": rd_start,
+                    "end_date": rd_end,
+                    "gpa": rd_gpa,
+                    "honors": rd_honors,
+                    "is_current": rd_current
+                },
+                "courses": [
+                    {
+                        **c,
+                        "is_major_related": st.session_state.get(f"review_major_{idx}", True)
+                    }
+                    for idx, c in enumerate(ext_courses)
+                ]
+            }
+
+            with st.spinner("Saving..."):
+                try:
+                    save_from_review(user["id"], review_data, db)
+
+                    # Extract skills from the saved courses
+                    skills = extractor.extract_skills(review_data["courses"])
+                    for s in skills:
+                        try:
+                            db.execute(
+                                "INSERT OR IGNORE INTO skills (user_id, name, category, proficiency, source) VALUES (?, ?, ?, ?, ?)",
+                                (user["id"], s.get("name"), s.get("category"), s.get("proficiency"), s.get("source"))
+                            )
+                        except Exception:
+                            pass
+
+                    st.success(f"Saved {len(ext_courses)} courses!")
+                    st.session_state.transcript_review = None
+                    for idx in range(len(ext_courses)):
+                        st.session_state.pop(f"review_major_{idx}", None)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
+
+        if st.button("Cancel Review"):
+            st.session_state.transcript_review = None
+            for idx in range(len(ext_courses)):
+                st.session_state.pop(f"review_major_{idx}", None)
+            st.rerun()
+
+    # ============== EXISTING EDUCATION ==============
     grouped = get_courses_grouped(user["id"], db)
     if grouped:
         st.markdown("---")
@@ -339,24 +641,16 @@ elif page == "Upload Transcript":
                         st.write(f"{deg.get('start_date', '')} — {deg.get('end_date', 'Present') if deg.get('is_current') else deg.get('end_date', '')}")
                     if deg.get("courses"):
                         for c in deg["courses"]:
-                            st.write(f"- **{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', 'N/A')})")
+                            major_flag = "✅" if c.get("is_major_related") else "⬜"
+                            st.write(f"- {major_flag} **{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', 'N/A')})")
                     else:
                         st.caption("No courses assigned to this degree yet.")
 
                 if inst.get("unassigned_courses"):
                     st.markdown("#### 📄 Unassigned Courses")
                     for c in inst["unassigned_courses"]:
-                        st.write(f"- **{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', 'N/A')})")
-
-    # Show transfer credits
-    transfers = db.fetchall("SELECT * FROM transfer_credits WHERE user_id = ? ORDER BY id DESC", (user["id"],))
-    if transfers:
-        st.markdown("---")
-        st.subheader("Transfer Credits")
-        for t in transfers:
-            st.write(f"**Institution:** {t.get('institution', 'N/A')}")
-            st.write(f"Attempted: {t.get('attempted', 'N/A')} | Earned: {t.get('earned', 'N/A')} | GPA Units: {t.get('gpa_units', 'N/A')}")
-            st.write(f"Transfer GPA: {t.get('transfer_gpa', 'N/A')}")
+                        major_flag = "✅" if c.get("is_major_related") else "⬜"
+                        st.write(f"- {major_flag} **{c['code']}** — {c['name']} (Grade: {c['grade']}, Credits: {c['credits']}, Term: {c.get('term', 'N/A')})")
             st.markdown("---")
 
 elif page == "Skills & Certificates":
@@ -819,9 +1113,12 @@ elif page == "Generate Documents":
         skills = db.fetchall("SELECT * FROM skills")
         courses = db.fetchall("SELECT * FROM courses")
         certificates = db.fetchall("SELECT * FROM certificates")
+        degrees = get_degrees(user["id"], db)
 
         if not courses:
             st.error("Upload your transcript first to generate documents.")
+        elif not degrees:
+            st.error("Add your degrees on the **Education** page first.")
         else:
             st.markdown("---")
             col1, col2, col3 = st.columns(3)
@@ -835,7 +1132,7 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating resume with AI..."):
                             try:
-                                data, filepath, html = gen.generate_resume(courses, skills, certificates, job, profile)
+                                data, filepath, html = gen.generate_resume(courses, skills, certificates, job, profile, degrees)
                                 # Ensure generated file goes to user's directory
                                 filename = os.path.basename(filepath)
                                 user_filepath = os.path.join(user_paths["generated_dir"], filename)
@@ -864,7 +1161,7 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating cover letter with AI..."):
                             try:
-                                data, filepath, html = gen.generate_cover_letter(courses, skills, certificates, job, profile)
+                                data, filepath, html = gen.generate_cover_letter(courses, skills, certificates, job, profile, degrees)
                                 filename = os.path.basename(filepath)
                                 user_filepath = os.path.join(user_paths["generated_dir"], filename)
                                 if filepath != user_filepath and os.path.exists(filepath):
@@ -892,7 +1189,7 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating Q&A with AI..."):
                             try:
-                                qna = gen.generate_qna(courses, skills, certificates, job, profile)
+                                qna = gen.generate_qna(courses, skills, certificates, job, profile, degrees)
                                 db.execute(
                                     "INSERT INTO documents (user_id, job_id, doc_type, content) VALUES (?, ?, ?, ?)",
                                     (user["id"], job['id'], "qna", json.dumps(qna))

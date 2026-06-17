@@ -3,7 +3,7 @@ import re
 from typing import List, Dict, Any
 from app.ai.client import AIClient
 
-COURSE_EXTRACTION_PROMPT = """You are an expert academic transcript parser. Given the raw text extracted from an academic transcript, extract institutions, degrees, and all courses into a structured JSON format.
+COURSE_EXTRACTION_PROMPT = """You are an expert academic transcript parser. Given the raw text extracted from an academic transcript, extract the institution, degree, and all courses listed. The user will upload transcripts from each school separately, so do NOT combine them or create transfer credit summaries.
 
 Return ONLY a valid JSON object with this exact structure (no markdown, no explanations, no extra text before or after):
 {{
@@ -15,20 +15,16 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no expla
   ],
   "courses": [
     {{"code": "CS101", "name": "Introduction to Computer Science", "grade": "A", "credits": 3.0, "term": "Fall 2020", "institution_name": "University Name", "degree_name": "Bachelor of Science in Computer Science", "description": "Brief description if available, otherwise infer from course name"}}
-  ],
-  "transfer_credits": [
-    {{"institution_name": "Community College Name", "attempted": 64.0, "earned": 64.0, "gpa_units": 63.0, "points": 195.0, "transfer_gpa": 3.095}}
   ]
 }}
 
 Rules:
-- Extract EVERY institution, degree, and course listed in the transcript.
+- Extract the institution and degree from THIS transcript only.
 - Institution types: high_school, community_college, university, certificate_organization, other.
 - Degree types: high_school_diploma, associates, bachelors, masters, doctorate, certificate, other.
-- Each course must reference the institution_name and degree_name it belongs to. Use the exact institution/degree names from the institutions and degrees arrays.
+- Each course must reference the institution_name and degree_name it belongs to.
 - For courses without a degree (e.g., high school classes), set degree_name to null.
-- Extract transfer credit SUMMARY if present (institution_name, attempted, earned, gpa_units, points, transfer_gpa).
-- If no transfer credits exist, use an empty array [] for transfer_credits.
+- Do NOT create transfer_credits summaries. The user uploads each transcript separately.
 - If a field is missing, use null or best inference.
 - grade should be the letter grade (A, B+, etc.).
 - credits should be a number.

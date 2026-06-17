@@ -18,6 +18,9 @@ RESUME_GENERATION_PROMPT = """You are an expert resume writer for Computer Scien
 Candidate Profile:
 {profile_json}
 
+Candidate Education:
+{degrees_json}
+
 Candidate Courses:
 {courses_json}
 
@@ -31,14 +34,15 @@ Job Description:
 {job_description}
 
 Generate resume content as a JSON object with this exact structure, no extra text before or after:
-{{"name": "Candidate Name", "summary": "Compelling professional summary tailored to this job", "university": "University Name", "degree": "Degree", "gpa": "GPA", "experience": ["Relevant project description"], "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"]}}
+{{"name": "Candidate Name", "summary": "Compelling professional summary tailored to this job", "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"]}}
 
 Rules:
 - Use the candidate's real name from the profile. Do NOT make up a name.
 - Use the candidate's real summary from the profile if available; you may tailor it slightly for the job.
-- Use only the provided courses, skills, and certificates. Do NOT invent fake projects, experience, degrees, or credentials.
+- Use only the provided education, courses, skills, and certificates. Do NOT invent fake projects, experience, degrees, or credentials.
+- The education section should be rendered from the provided degrees data, not from this JSON.
 - If no experience/projects are provided, return an empty experience array rather than making something up.
-- Select the most relevant courses and certificates for this job.
+- Select the most relevant major-related courses and certificates for this job.
 """
 
 COVER_LETTER_PROMPT = """You are an expert cover letter writer.
@@ -99,9 +103,11 @@ class DocumentGenerator:
         self.client = AIClient()
         self.templates_dir = os.path.join(os.path.dirname(__file__), "../templates")
 
-    def _get_context(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> Dict[str, Any]:
+    def _get_context(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict,
+                     profile: Optional[Dict] = None, degrees: Optional[List[Dict]] = None) -> Dict[str, Any]:
         return {
             "profile_json": json.dumps(profile or {}, indent=2),
+            "degrees_json": json.dumps(degrees or [], indent=2),
             "courses_json": json.dumps(courses, indent=2),
             "skills_json": json.dumps(skills, indent=2),
             "certs_json": json.dumps(certificates, indent=2),
@@ -158,9 +164,15 @@ class DocumentGenerator:
                     return text[start:i+1]
         return ""
 
-    def generate_resume(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> tuple:
+    def generate_resume(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict,
+                        profile: Optional[Dict] = None, degrees: Optional[List[Dict]] = None) -> tuple:
         profile = profile or {}
-        context = self._get_context(courses, skills, certificates, job, profile)
+        degrees = degrees or []
+
+        # Filter to major-related courses for the resume
+        major_courses = [c for c in courses if c.get("is_major_related", 1)]
+
+        context = self._get_context(major_courses, skills, certificates, job, profile, degrees)
         prompt = RESUME_GENERATION_PROMPT.format(**context)
         response = self.client.chat(prompt)
         data = json.loads(self._clean_json(response))
@@ -183,10 +195,8 @@ class DocumentGenerator:
             profile=safe_profile,
             name=name,
             summary=data.get("summary", profile.get("summary", "")),
-            university=data.get("university", ""),
-            degree=data.get("degree", ""),
-            gpa=data.get("gpa", ""),
-            courses=data.get("highlighted_courses", courses[:10]),
+            degrees=degrees,
+            courses=data.get("highlighted_courses", major_courses[:10]),
             skills=[s["name"] for s in skills],
             certs=data.get("highlighted_certs", [c["name"] for c in certificates]),
             experience=data.get("experience", [])
@@ -202,9 +212,11 @@ class DocumentGenerator:
         HTML(string=html_out).write_pdf(filepath)
         return data, filepath, html_out
 
-    def generate_cover_letter(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> tuple:
+    def generate_cover_letter(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict,
+                              profile: Optional[Dict] = None, degrees: Optional[List[Dict]] = None) -> tuple:
         profile = profile or {}
-        context = self._get_context(courses, skills, certificates, job, profile)
+        major_courses = [c for c in courses if c.get("is_major_related", 1)]
+        context = self._get_context(major_courses, skills, certificates, job, profile, degrees)
         prompt = COVER_LETTER_PROMPT.format(**context)
         response = self.client.chat(prompt)
         data = json.loads(self._clean_json(response))
@@ -230,8 +242,10 @@ class DocumentGenerator:
         HTML(string=html_out).write_pdf(filepath)
         return data, filepath, html_out
 
-    def generate_qna(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> List[Dict]:
-        context = self._get_context(courses, skills, certificates, job, profile)
+    def generate_qna(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict,
+                     profile: Optional[Dict] = None, degrees: Optional[List[Dict]] = None) -> List[Dict]:
+        major_courses = [c for c in courses if c.get("is_major_related", 1)]
+        context = self._get_context(major_courses, skills, certificates, job, profile, degrees)
         prompt = QNA_PROMPT.format(**context)
         response = self.client.chat(prompt)
         return json.loads(self._clean_json(response))

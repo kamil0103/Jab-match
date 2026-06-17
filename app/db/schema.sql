@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS courses (
     term TEXT,
     description TEXT,
     skills TEXT,
+    is_major_related INTEGER DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (institution_id) REFERENCES institutions(id),
     FOREIGN KEY (degree_id) REFERENCES degrees(id)

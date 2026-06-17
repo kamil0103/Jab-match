@@ -4,7 +4,7 @@ from app.config import Config
 
 # Columns to add to existing tables if they don't already exist
 MIGRATIONS = {
-    "courses": ["user_id", "institution_id", "degree_id", "term"],
+    "courses": ["user_id", "institution_id", "degree_id", "term", "is_major_related"],
     "skills": ["user_id"],
     "jobs": ["user_id"],
     "documents": ["user_id"],
@@ -49,6 +49,15 @@ class Database:
         conn.commit()
         conn.close()
         return [dict(row) for row in rows]
+
+    def insert(self, query, params=()) -> int:
+        """Execute an INSERT statement and return the new row id."""
+        conn = self._connect()
+        cur = conn.execute(query, params)
+        row_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return row_id
 
     def fetchone(self, query, params=()):
         conn = self._connect()
