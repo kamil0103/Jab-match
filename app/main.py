@@ -943,6 +943,12 @@ elif page == "Resume Editor":
             st.session_state.resume_data = build_resume_data(user["id"], db)
 
     resume_data = st.session_state.resume_data
+
+    # Backward-compat: old saved versions stored skills as a flat list of strings
+    skills_data = resume_data.get("skills", [])
+    if skills_data and isinstance(skills_data[0], str):
+        resume_data["skills"] = [{"category": "Skills", "skills": skills_data}]
+
     ai_helper = ResumeAIHelper()
 
     # Sidebar controls
