@@ -5,6 +5,18 @@ import bcrypt
 
 USERS_DB_PATH = "/app/data/users.db"
 
+# Profile columns added to users table for simplicity
+PROFILE_COLUMNS = [
+    ("full_name", "TEXT"),
+    ("phone", "TEXT"),
+    ("location", "TEXT"),
+    ("linkedin_url", "TEXT"),
+    ("github_url", "TEXT"),
+    ("portfolio_url", "TEXT"),
+    ("summary", "TEXT"),
+    ("target_roles", "TEXT"),
+]
+
 def init_users_db():
     os.makedirs(os.path.dirname(USERS_DB_PATH), exist_ok=True)
     conn = sqlite3.connect(USERS_DB_PATH)
@@ -17,6 +29,11 @@ def init_users_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Migrate: add profile columns if they don't exist
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    for col_name, col_type in PROFILE_COLUMNS:
+        if col_name not in existing_cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
     conn.commit()
     conn.close()
 
@@ -89,8 +106,44 @@ def login_user(username_or_email: str, password: str) -> tuple:
     conn.close()
 
     if user and verify_password(password, user["password_hash"]):
-        return True, dict(user)
+        user_dict = dict(user)
+        user_dict.pop("password_hash", None)
+        return True, user_dict
     return False, None
+
+def get_profile(user_id: int) -> dict:
+    """Return profile fields for a user."""
+    init_users_db()
+    conn = sqlite3.connect(USERS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    user = conn.execute(
+        "SELECT id, username, email, full_name, phone, location, linkedin_url, github_url, portfolio_url, summary, target_roles, created_at "
+        "FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    return dict(user) if user else {}
+
+def update_profile(user_id: int, profile: dict) -> bool:
+    """Update profile fields for a user."""
+    init_users_db()
+    allowed_fields = {col[0] for col in PROFILE_COLUMNS}
+    # Also allow updating email if provided
+    allowed_fields.add("email")
+    updates = {k: v for k, v in profile.items() if k in allowed_fields}
+    if not updates:
+        return False
+
+    columns = list(updates.keys())
+    values = [updates[col] for col in columns]
+    set_clause = ", ".join([f"{col} = ?" for col in columns])
+    values.append(user_id)
+
+    conn = sqlite3.connect(USERS_DB_PATH)
+    conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
+    conn.commit()
+    conn.close()
+    return True
 
 def get_user_paths(user_id: int) -> dict:
     user_dir = os.path.join("/app/data/users", str(user_id))

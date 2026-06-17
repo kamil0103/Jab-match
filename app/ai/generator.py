@@ -15,7 +15,8 @@ env = Environment(
 
 RESUME_GENERATION_PROMPT = """You are an expert resume writer for Computer Science graduates.
 
-Given a candidate's courses, skills, certificates, and a target job description, generate a tailored resume content.
+Candidate Profile:
+{profile_json}
 
 Candidate Courses:
 {courses_json}
@@ -31,11 +32,19 @@ Job Description:
 
 Generate resume content as a JSON object with this exact structure, no extra text before or after:
 {{"name": "Candidate Name", "summary": "Compelling professional summary tailored to this job", "university": "University Name", "degree": "Degree", "gpa": "GPA", "experience": ["Relevant project description"], "highlighted_courses": [{{"code": "CS101", "name": "Course Name", "relevance": "Why this matters"}}], "highlighted_certs": ["AWS Certified Solutions Architect"]}}
+
+Rules:
+- Use the candidate's real name from the profile. Do NOT make up a name.
+- Use the candidate's real summary from the profile if available; you may tailor it slightly for the job.
+- Use only the provided courses, skills, and certificates. Do NOT invent fake projects, experience, degrees, or credentials.
+- If no experience/projects are provided, return an empty experience array rather than making something up.
+- Select the most relevant courses and certificates for this job.
 """
 
 COVER_LETTER_PROMPT = """You are an expert cover letter writer.
 
-Write a compelling cover letter connecting the candidate's background to the job.
+Candidate Profile:
+{profile_json}
 
 Candidate Courses:
 {courses_json}
@@ -54,11 +63,16 @@ Job Title: {job_title}
 
 Return ONLY a JSON object, no extra text:
 {{"opening": "Engaging opening", "body": "Connecting coursework to job requirements", "closing": "Strong closing"}}
+
+Rules:
+- Use only the candidate's real background. Do NOT invent degrees, experience, or projects.
+- The cover letter should sound like it was written by the candidate named in the profile.
 """
 
 QNA_PROMPT = """You are a job application coach.
 
-Given a candidate's background and a job description, generate suggested answers to common application questions.
+Candidate Profile:
+{profile_json}
 
 Candidate Courses:
 {courses_json}
@@ -74,6 +88,10 @@ Job Description:
 
 Return ONLY a JSON array, no extra text:
 [{{"question": "Tell me about yourself", "answer": "Suggested answer"}}, {{"question": "Why do you want to work here?", "answer": "Suggested answer"}}, {{"question": "What are your strengths?", "answer": "Suggested answer"}}, {{"question": "Describe a challenging project", "answer": "Suggested answer"}}, {{"question": "Where do you see yourself in 5 years?", "answer": "Suggested answer"}}]
+
+Rules:
+- Base answers only on the candidate's real profile, courses, skills, and certificates.
+- Do NOT invent fake experience or projects.
 """
 
 class DocumentGenerator:
@@ -81,8 +99,9 @@ class DocumentGenerator:
         self.client = AIClient()
         self.templates_dir = os.path.join(os.path.dirname(__file__), "../templates")
 
-    def _get_context(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict) -> Dict[str, Any]:
+    def _get_context(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> Dict[str, Any]:
         return {
+            "profile_json": json.dumps(profile or {}, indent=2),
             "courses_json": json.dumps(courses, indent=2),
             "skills_json": json.dumps(skills, indent=2),
             "certs_json": json.dumps(certificates, indent=2),
@@ -139,17 +158,31 @@ class DocumentGenerator:
                     return text[start:i+1]
         return ""
 
-    def generate_resume(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict) -> tuple:
-        context = self._get_context(courses, skills, certificates, job)
+    def generate_resume(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> tuple:
+        profile = profile or {}
+        context = self._get_context(courses, skills, certificates, job, profile)
         prompt = RESUME_GENERATION_PROMPT.format(**context)
         response = self.client.chat(prompt)
         data = json.loads(self._clean_json(response))
 
+        # Use profile data for contact header; fallback to generated/placeholder only if missing
+        name = profile.get("full_name") or data.get("name", "Your Name")
+        safe_profile = {
+            "full_name": name,
+            "email": profile.get("email", ""),
+            "phone": profile.get("phone", ""),
+            "location": profile.get("location", ""),
+            "linkedin_url": profile.get("linkedin_url", ""),
+            "github_url": profile.get("github_url", ""),
+            "portfolio_url": profile.get("portfolio_url", ""),
+        }
+
         # Render HTML
         template = env.get_template("resume.html")
         html_out = template.render(
-            name=data.get("name", "Your Name"),
-            summary=data.get("summary", ""),
+            profile=safe_profile,
+            name=name,
+            summary=data.get("summary", profile.get("summary", "")),
             university=data.get("university", ""),
             degree=data.get("degree", ""),
             gpa=data.get("gpa", ""),
@@ -159,14 +192,19 @@ class DocumentGenerator:
             experience=data.get("experience", [])
         )
 
-        # Save PDF
-        filename = f"resume_{job['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        # Save PDF with professional filename if name is available
+        if profile.get("full_name"):
+            safe_name = "".join(c if c.isalnum() else "_" for c in profile.get("full_name")).strip("_")
+            filename = f"{safe_name}_Resume_{job['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        else:
+            filename = f"resume_{job['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         filepath = os.path.join(Config.GENERATED_DIR, filename)
         HTML(string=html_out).write_pdf(filepath)
         return data, filepath, html_out
 
-    def generate_cover_letter(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict) -> tuple:
-        context = self._get_context(courses, skills, certificates, job)
+    def generate_cover_letter(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> tuple:
+        profile = profile or {}
+        context = self._get_context(courses, skills, certificates, job, profile)
         prompt = COVER_LETTER_PROMPT.format(**context)
         response = self.client.chat(prompt)
         data = json.loads(self._clean_json(response))
@@ -179,9 +217,12 @@ class DocumentGenerator:
             opening=data.get("opening", ""),
             body=data.get("body", ""),
             closing=data.get("closing", ""),
-            name="Your Name",
-            email="your.email@example.com",
-            phone="(555) 123-4567"
+            name=profile.get("full_name", "Your Name"),
+            email=profile.get("email", "your.email@example.com"),
+            phone=profile.get("phone", "(555) 123-4567"),
+            linkedin_url=profile.get("linkedin_url", ""),
+            github_url=profile.get("github_url", ""),
+            portfolio_url=profile.get("portfolio_url", "")
         )
 
         filename = f"cover_letter_{job['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -189,8 +230,8 @@ class DocumentGenerator:
         HTML(string=html_out).write_pdf(filepath)
         return data, filepath, html_out
 
-    def generate_qna(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict) -> List[Dict]:
-        context = self._get_context(courses, skills, certificates, job)
+    def generate_qna(self, courses: List[Dict], skills: List[Dict], certificates: List[Dict], job: Dict, profile: Optional[Dict] = None) -> List[Dict]:
+        context = self._get_context(courses, skills, certificates, job, profile)
         prompt = QNA_PROMPT.format(**context)
         response = self.client.chat(prompt)
         return json.loads(self._clean_json(response))

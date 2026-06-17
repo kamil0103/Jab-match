@@ -1,11 +1,14 @@
 import json
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.ai.client import AIClient
 
 MATCHING_PROMPT = """You are a job matching expert for Computer Science graduates.
 
-Given a candidate's skills, courses, certificates, and a job description, analyze the fit in detail.
+Given a candidate's profile, skills, courses, certificates, and a job description, analyze the fit in detail.
+
+Candidate Profile:
+{profile_json}
 
 Candidate Skills:
 {skills_json}
@@ -45,8 +48,9 @@ class JobMatcher:
     def __init__(self):
         self.client = AIClient()
 
-    def match(self, skills: List[Dict[str, Any]], courses: List[Dict[str, Any]], certificates: List[Dict[str, Any]], job_description: str) -> Dict[str, Any]:
+    def match(self, skills: List[Dict[str, Any]], courses: List[Dict[str, Any]], certificates: List[Dict[str, Any]], job_description: str, profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         prompt = MATCHING_PROMPT.format(
+            profile_json=json.dumps(profile or {}, indent=2),
             skills_json=json.dumps(skills, indent=2),
             courses_json=json.dumps(courses, indent=2),
             certs_json=json.dumps(certificates, indent=2),

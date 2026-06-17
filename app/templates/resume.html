@@ -6,7 +6,8 @@
     <title>{{ name }} - Resume</title>
     <style>
         body { font-family: sans-serif; margin: 40px; color: #333; }
-        h1 { font-size: 24px; border-bottom: 2px solid #2c3e50; padding-bottom: 8px; }
+        h1 { font-size: 24px; border-bottom: 2px solid #2c3e50; padding-bottom: 8px; margin-bottom: 4px; }
+        .contact { font-size: 12px; color: #555; margin-bottom: 16px; }
         h2 { font-size: 18px; color: #2c3e50; margin-top: 24px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
         .section { margin-top: 16px; }
         .course { margin-bottom: 8px; }
@@ -19,6 +20,19 @@
 </head>
 <body>
     <h1>{{ name }}</h1>
+    <p class="contact">
+        {% if profile.location %}{{ profile.location }}{% endif %}
+        {% if profile.location and (profile.phone or profile.email) %} | {% endif %}
+        {% if profile.phone %}{{ profile.phone }}{% endif %}
+        {% if profile.phone and profile.email %} | {% endif %}
+        {% if profile.email %}{{ profile.email }}{% endif %}
+        <br>
+        {% if profile.linkedin_url %}LinkedIn: {{ profile.linkedin_url }}{% endif %}
+        {% if profile.linkedin_url and profile.github_url %} | {% endif %}
+        {% if profile.github_url %}GitHub: {{ profile.github_url }}{% endif %}
+        {% if profile.portfolio_url and (profile.linkedin_url or profile.github_url) %} | {% endif %}
+        {% if profile.portfolio_url %}Portfolio: {{ profile.portfolio_url }}{% endif %}
+    </p>
     <p>{{ summary }}</p>
 
     <h2>Education</h2>

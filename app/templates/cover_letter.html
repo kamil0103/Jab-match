@@ -30,7 +30,14 @@
 
     <div class="signature">
         <p>Sincerely,</p>
-        <p><strong>{{ name }}</strong><br>{{ email }}<br>{{ phone }}</p>
+        <p>
+            <strong>{{ name }}</strong><br>
+            {% if email %}{{ email }}<br>{% endif %}
+            {% if phone %}{{ phone }}<br>{% endif %}
+            {% if linkedin_url %}LinkedIn: {{ linkedin_url }}<br>{% endif %}
+            {% if github_url %}GitHub: {{ github_url }}<br>{% endif %}
+            {% if portfolio_url %}Portfolio: {{ portfolio_url }}{% endif %}
+        </p>
     </div>
 </body>
 </html>

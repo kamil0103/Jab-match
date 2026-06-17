@@ -6,7 +6,7 @@ from app.db.database import Database
 from app.parsers.transcript import parse_transcript
 from app.parsers.syllabus import parse_syllabus
 from app.ai.extractor import TranscriptExtractor
-from app.auth import login_user, register_user, get_user_paths
+from app.auth import login_user, register_user, get_user_paths, get_profile, update_profile
 
 st.set_page_config(
     page_title="Job Matcher",
@@ -93,6 +93,11 @@ if st.session_state.user is None:
 user = st.session_state.user
 user_paths = get_user_paths(user["id"])
 
+# Refresh profile data from users database and merge into session user
+profile = get_profile(user["id"])
+user.update(profile)
+st.session_state.user = user
+
 # Ensure directories exist
 os.makedirs(user_paths["uploads_dir"], exist_ok=True)
 os.makedirs(user_paths["generated_dir"], exist_ok=True)
@@ -115,7 +120,7 @@ st.sidebar.markdown(f"**Logged in as:** `{user['username']}`")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
+    ["Dashboard", "Profile", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
 )
 
 st.sidebar.markdown("---")
@@ -176,6 +181,70 @@ if page == "Dashboard":
     3. Go to **Discover Jobs** to find listings matched to your profile
     4. Go to **Jobs** to analyze fit and generate application materials
     """)
+
+elif page == "Profile":
+    st.title("Your Profile")
+    st.markdown("Update your personal information. This is used when generating resumes and cover letters.")
+
+    profile = get_profile(user["id"])
+
+    with st.form("profile_form"):
+        full_name = st.text_input("Full Name", value=profile.get("full_name", ""), placeholder="John Doe")
+        email = st.text_input("Email", value=profile.get("email", user.get("email", "")), placeholder="john@example.com")
+        phone = st.text_input("Phone", value=profile.get("phone", ""), placeholder="(555) 123-4567")
+        location = st.text_input("Location (City, State)", value=profile.get("location", ""), placeholder="Los Angeles, CA")
+        linkedin_url = st.text_input("LinkedIn URL", value=profile.get("linkedin_url", ""), placeholder="https://linkedin.com/in/johndoe")
+        github_url = st.text_input("GitHub URL", value=profile.get("github_url", ""), placeholder="https://github.com/johndoe")
+        portfolio_url = st.text_input("Portfolio / Website URL", value=profile.get("portfolio_url", ""), placeholder="https://johndoe.dev")
+        summary = st.text_area("Professional Summary (2–4 lines)", value=profile.get("summary", ""), height=100)
+        target_roles = st.text_input("Target Roles (comma separated)", value=profile.get("target_roles", ""), placeholder="Software Engineer, Backend Developer")
+
+        save_profile = st.form_submit_button("Save Profile", type="primary")
+
+    if save_profile:
+        updated = {
+            "full_name": full_name,
+            "email": email,
+            "phone": phone,
+            "location": location,
+            "linkedin_url": linkedin_url,
+            "github_url": github_url,
+            "portfolio_url": portfolio_url,
+            "summary": summary,
+            "target_roles": target_roles,
+        }
+        if update_profile(user["id"], updated):
+            # Refresh session user
+            user.update(updated)
+            st.session_state.user = user
+            st.success("Profile saved!")
+            st.rerun()
+        else:
+            st.error("Could not save profile.")
+
+    st.markdown("---")
+    st.subheader("Resume Contact Header Preview")
+    contact_parts = []
+    if profile.get("location"):
+        contact_parts.append(profile.get("location"))
+    if profile.get("phone"):
+        contact_parts.append(profile.get("phone"))
+    if profile.get("email"):
+        contact_parts.append(profile.get("email"))
+    links = []
+    if profile.get("linkedin_url"):
+        links.append(f"[LinkedIn]({profile.get('linkedin_url')})")
+    if profile.get("github_url"):
+        links.append(f"[GitHub]({profile.get('github_url')})")
+    if profile.get("portfolio_url"):
+        links.append(f"[Portfolio]({profile.get('portfolio_url')})")
+
+    if profile.get("full_name"):
+        st.markdown(f"### {profile.get('full_name')}")
+    if contact_parts:
+        st.markdown(" | ".join(contact_parts))
+    if links:
+        st.markdown(" | ".join(links))
 
 elif page == "Upload Transcript":
     st.title("Upload Transcript")
@@ -629,9 +698,10 @@ elif page == "Jobs":
                         else:
                             from app.ai.matcher import JobMatcher
                             matcher = JobMatcher()
+                            user_profile = get_profile(user["id"])
                             with st.spinner("Analyzing fit with AI..."):
                                 try:
-                                    result = matcher.match(skills, courses, certificates, job['description'] or "")
+                                    result = matcher.match(skills, courses, certificates, job['description'] or "", user_profile)
                                     db.execute(
                                         "UPDATE jobs SET match_score = ?, missing_skills = ?, requirements = ? WHERE id = ?",
                                         (result.get("match_score"), json.dumps(result.get("missing_skills", [])), json.dumps(result), job['id'])
@@ -709,6 +779,11 @@ elif page == "Generate Documents":
     st.title("Generate Documents")
     st.markdown("Select a job to generate a tailored resume, cover letter, and Q&A answers.")
 
+    # Load profile for document generation
+    profile = get_profile(user["id"])
+    if not profile.get("full_name"):
+        st.warning("Your profile is missing a full name. Go to **Profile** and fill it out first.")
+
     jobs = db.fetchall("SELECT * FROM jobs ORDER BY match_score DESC, created_at DESC")
     if not jobs:
         st.warning("No jobs added yet. Go to Jobs page first.")
@@ -736,7 +811,7 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating resume with AI..."):
                             try:
-                                data, filepath, html = gen.generate_resume(courses, skills, certificates, job)
+                                data, filepath, html = gen.generate_resume(courses, skills, certificates, job, profile)
                                 # Ensure generated file goes to user's directory
                                 filename = os.path.basename(filepath)
                                 user_filepath = os.path.join(user_paths["generated_dir"], filename)
@@ -765,7 +840,7 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating cover letter with AI..."):
                             try:
-                                data, filepath, html = gen.generate_cover_letter(courses, skills, certificates, job)
+                                data, filepath, html = gen.generate_cover_letter(courses, skills, certificates, job, profile)
                                 filename = os.path.basename(filepath)
                                 user_filepath = os.path.join(user_paths["generated_dir"], filename)
                                 if filepath != user_filepath and os.path.exists(filepath):
@@ -793,7 +868,7 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating Q&A with AI..."):
                             try:
-                                qna = gen.generate_qna(courses, skills, certificates, job)
+                                qna = gen.generate_qna(courses, skills, certificates, job, profile)
                                 db.execute(
                                     "INSERT INTO documents (job_id, doc_type, content) VALUES (?, ?, ?)",
                                     (job['id'], "qna", json.dumps(qna))
