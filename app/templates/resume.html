@@ -79,13 +79,44 @@
         </ul>
     </div>
 
-    <h2>Projects & Experience</h2>
+    {% if work_experience %}
+    <h2>Work Experience</h2>
     <div class="section">
-        <ul>
-            {% for item in experience %}
-            <li>{{ item }}</li>
-            {% endfor %}
-        </ul>
+        {% for exp in work_experience %}
+        <div class="job" style="margin-bottom: 16px;">
+            <p style="margin: 0;">
+                <strong>{{ exp.title }}</strong> — {{ exp.company }}
+                {% if exp.location %}<span style="color: #666;">({{ exp.location }})</span>{% endif %}
+            </p>
+            <p style="margin: 0; font-size: 12px; color: #666;">
+                {{ exp.start_date or '' }} — {% if exp.is_current %}Present{% else %}{{ exp.end_date or '' }}{% endif %}
+            </p>
+            <div style="font-size: 13px;">
+                {{ exp.bullets | safe }}
+            </div>
+        </div>
+        {% endfor %}
     </div>
+    {% endif %}
+
+    {% if projects %}
+    <h2>Projects</h2>
+    <div class="section">
+        {% for proj in projects %}
+        <div class="project" style="margin-bottom: 16px;">
+            <p style="margin: 0;">
+                <strong>{{ proj.name }}</strong>
+                {% if proj.link %}<span style="font-size: 12px;">— {{ proj.link }}</span>{% endif %}
+            </p>
+            {% if proj.technologies %}
+            <p style="margin: 0; font-size: 12px; color: #666;">Technologies: {{ proj.technologies }}</p>
+            {% endif %}
+            {% if proj.description %}
+            <p style="margin: 4px 0 0 0; font-size: 13px;">{{ proj.description }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
 </body>
 </html>

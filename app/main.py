@@ -14,6 +14,10 @@ from app.db.education import (
     add_course, update_course, delete_course, move_course,
     find_matching_institution, find_matching_degree, save_from_review
 )
+from app.db.experience import (
+    get_work_experience, add_work_experience, update_work_experience, delete_work_experience,
+    get_projects, add_project, update_project, delete_project
+)
 
 st.set_page_config(
     page_title="Job Matcher",
@@ -127,7 +131,7 @@ st.sidebar.markdown(f"**Logged in as:** `{user['username']}`")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Profile", "Education", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
+    ["Dashboard", "Profile", "Education", "Experience", "Upload Transcript", "Skills & Certificates", "Discover Jobs", "Jobs", "Generate Documents", "Settings"]
 )
 
 st.sidebar.markdown("---")
@@ -423,6 +427,121 @@ elif page == "Education":
                     st.rerun()
     else:
         st.info("No courses yet. Upload a transcript to add courses.")
+
+elif page == "Experience":
+    st.title("Experience & Projects")
+    st.markdown("Add your real work experience and projects. The AI will use these on your resume and will NOT invent fake ones.")
+
+    # ============== WORK EXPERIENCE ==============
+    st.markdown("---")
+    st.header("Work Experience")
+    with st.expander("Add Work Experience"):
+        with st.form("add_exp_form"):
+            exp_company = st.text_input("Company", placeholder="Tech Corp")
+            exp_title = st.text_input("Job Title", placeholder="Software Engineering Intern")
+            exp_location = st.text_input("Location", placeholder="Remote")
+            c1, c2 = st.columns(2)
+            with c1:
+                exp_start = st.text_input("Start Date (YYYY-MM)", placeholder="2023-06")
+            with c2:
+                exp_end = st.text_input("End Date (YYYY-MM)", placeholder="2023-08")
+            exp_current = st.checkbox("I currently work here")
+            exp_bullets = st.text_area("Bullet points (one per line)", height=100,
+                                       placeholder="- Built a Python API serving 10k requests/day\n- Reduced database query time by 40%")
+            add_exp = st.form_submit_button("Add Experience")
+        if add_exp and exp_company and exp_title:
+            add_work_experience(user["id"], exp_company, exp_title, exp_location,
+                                exp_start, exp_end, exp_current, exp_bullets, db)
+            st.success(f"Added experience at {exp_company}")
+            st.rerun()
+
+    experiences = get_work_experience(user["id"], db)
+    if experiences:
+        for exp in experiences:
+            with st.expander(f"{exp['title']} at {exp['company']}"):
+                with st.form(f"edit_exp_{exp['id']}"):
+                    ee_company = st.text_input("Company", value=exp["company"], key=f"ee_company_{exp['id']}")
+                    ee_title = st.text_input("Job Title", value=exp["title"], key=f"ee_title_{exp['id']}")
+                    ee_location = st.text_input("Location", value=exp.get("location", ""), key=f"ee_location_{exp['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        ee_start = st.text_input("Start Date", value=exp.get("start_date", ""), key=f"ee_start_{exp['id']}")
+                    with c2:
+                        ee_end = st.text_input("End Date", value=exp.get("end_date", ""), key=f"ee_end_{exp['id']}")
+                    ee_current = st.checkbox("I currently work here", value=bool(exp.get("is_current")), key=f"ee_current_{exp['id']}")
+                    ee_bullets = st.text_area("Bullet points", value=exp.get("bullets", ""), height=100, key=f"ee_bullets_{exp['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        save_exp = st.form_submit_button("Save")
+                    with c2:
+                        del_exp = st.form_submit_button("Delete", type="secondary")
+                if save_exp:
+                    update_work_experience(user["id"], exp["id"], ee_company, ee_title, ee_location,
+                                           ee_start, ee_end, ee_current, ee_bullets, db)
+                    st.success("Experience updated")
+                    st.rerun()
+                if del_exp:
+                    delete_work_experience(user["id"], exp["id"], db)
+                    st.success("Experience deleted")
+                    st.rerun()
+    else:
+        st.info("No work experience yet. Add one above.")
+
+    # ============== PROJECTS ==============
+    st.markdown("---")
+    st.header("Projects")
+    with st.expander("Add Project"):
+        with st.form("add_project_form"):
+            proj_name = st.text_input("Project Name", placeholder="Job Matching App")
+            proj_desc = st.text_area("Description", placeholder="A web app that uses AI to match resumes to jobs")
+            proj_tech = st.text_input("Technologies (comma separated)", placeholder="Python, Streamlit, SQLite")
+            proj_link = st.text_input("Project Link", placeholder="https://github.com/username/project")
+            c1, c2 = st.columns(2)
+            with c1:
+                proj_start = st.text_input("Start Date (YYYY-MM)", placeholder="2024-01")
+            with c2:
+                proj_end = st.text_input("End Date (YYYY-MM)", placeholder="2024-06")
+            proj_current = st.checkbox("This project is ongoing")
+            add_proj = st.form_submit_button("Add Project")
+        if add_proj and proj_name:
+            add_project(user["id"], proj_name, proj_desc, proj_tech, proj_link,
+                        proj_start, proj_end, proj_current, db)
+            st.success(f"Added project: {proj_name}")
+            st.rerun()
+
+    projects = get_projects(user["id"], db)
+    if projects:
+        for proj in projects:
+            with st.expander(f"{proj['name']}"):
+                with st.form(f"edit_proj_{proj['id']}"):
+                    ep_name = st.text_input("Name", value=proj["name"], key=f"ep_name_{proj['id']}")
+                    ep_desc = st.text_area("Description", value=proj.get("description", ""), key=f"ep_desc_{proj['id']}")
+                    ep_tech = st.text_input("Technologies", value=proj.get("technologies", ""), key=f"ep_tech_{proj['id']}")
+                    ep_link = st.text_input("Link", value=proj.get("link", ""), key=f"ep_link_{proj['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        ep_start = st.text_input("Start Date", value=proj.get("start_date", ""), key=f"ep_start_{proj['id']}")
+                    with c2:
+                        ep_end = st.text_input("End Date", value=proj.get("end_date", ""), key=f"ep_end_{proj['id']}")
+                    ep_current = st.checkbox("Ongoing", value=bool(proj.get("is_current")), key=f"ep_current_{proj['id']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        save_proj = st.form_submit_button("Save")
+                    with c2:
+                        del_proj = st.form_submit_button("Delete", type="secondary")
+                if save_proj:
+                    update_project(user["id"], proj["id"], ep_name, ep_desc, ep_tech, ep_link,
+                                   ep_start, ep_end, ep_current, db)
+                    st.success("Project updated")
+                    st.rerun()
+                if del_proj:
+                    delete_project(user["id"], proj["id"], db)
+                    st.success("Project deleted")
+                    st.rerun()
+                if proj.get("link"):
+                    st.link_button("View Project", proj["link"])
+    else:
+        st.info("No projects yet. Add one above.")
 
 elif page == "Upload Transcript":
     st.title("Upload Transcript")
@@ -1114,6 +1233,8 @@ elif page == "Generate Documents":
         courses = db.fetchall("SELECT * FROM courses")
         certificates = db.fetchall("SELECT * FROM certificates")
         degrees = get_degrees(user["id"], db)
+        work_experience = get_work_experience(user["id"], db)
+        projects = get_projects(user["id"], db)
 
         if not courses:
             st.error("Upload your transcript first to generate documents.")
@@ -1132,7 +1253,9 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating resume with AI..."):
                             try:
-                                data, filepath, html = gen.generate_resume(courses, skills, certificates, job, profile, degrees)
+                                data, filepath, html = gen.generate_resume(
+                                    courses, skills, certificates, job, profile, degrees, work_experience, projects
+                                )
                                 # Ensure generated file goes to user's directory
                                 filename = os.path.basename(filepath)
                                 user_filepath = os.path.join(user_paths["generated_dir"], filename)
@@ -1140,6 +1263,30 @@ elif page == "Generate Documents":
                                     import shutil
                                     shutil.move(filepath, user_filepath)
                                     filepath = user_filepath
+
+                                # Build full resume JSON for future editor
+                                resume_data = {
+                                    "profile": {
+                                        "full_name": profile.get("full_name", ""),
+                                        "email": profile.get("email", ""),
+                                        "phone": profile.get("phone", ""),
+                                        "location": profile.get("location", ""),
+                                        "linkedin_url": profile.get("linkedin_url", ""),
+                                        "github_url": profile.get("github_url", ""),
+                                        "portfolio_url": profile.get("portfolio_url", ""),
+                                        "summary": data.get("summary", profile.get("summary", ""))
+                                    },
+                                    "degrees": degrees,
+                                    "work_experience": work_experience,
+                                    "projects": projects,
+                                    "skills": [s["name"] for s in skills],
+                                    "certificates": [c["name"] for c in certificates],
+                                    "courses": data.get("highlighted_courses", [c for c in courses if c.get("is_major_related", 1)][:10])
+                                }
+                                db.insert(
+                                    "INSERT INTO resume_versions (user_id, job_id, resume_data) VALUES (?, ?, ?)",
+                                    (user["id"], job['id'], json.dumps(resume_data))
+                                )
                                 db.execute(
                                     "INSERT INTO documents (user_id, job_id, doc_type, content, file_path) VALUES (?, ?, ?, ?, ?)",
                                     (user["id"], job['id'], "resume", json.dumps(data), filepath)
@@ -1161,7 +1308,9 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating cover letter with AI..."):
                             try:
-                                data, filepath, html = gen.generate_cover_letter(courses, skills, certificates, job, profile, degrees)
+                                data, filepath, html = gen.generate_cover_letter(
+                                    courses, skills, certificates, job, profile, degrees, work_experience, projects
+                                )
                                 filename = os.path.basename(filepath)
                                 user_filepath = os.path.join(user_paths["generated_dir"], filename)
                                 if filepath != user_filepath and os.path.exists(filepath):
@@ -1189,7 +1338,9 @@ elif page == "Generate Documents":
                         gen = DocumentGenerator()
                         with st.spinner("Generating Q&A with AI..."):
                             try:
-                                qna = gen.generate_qna(courses, skills, certificates, job, profile, degrees)
+                                qna = gen.generate_qna(
+                                    courses, skills, certificates, job, profile, degrees, work_experience, projects
+                                )
                                 db.execute(
                                     "INSERT INTO documents (user_id, job_id, doc_type, content) VALUES (?, ?, ?, ?)",
                                     (user["id"], job['id'], "qna", json.dumps(qna))
