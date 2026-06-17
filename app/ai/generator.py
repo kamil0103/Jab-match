@@ -271,42 +271,23 @@ class DocumentGenerator:
             selected_degree_ids = [d["id"] for d in degrees if d.get("degree_name") and d.get("institution_type") != "high_school"]
         selected_degrees = [d for d in degrees if d["id"] in selected_degree_ids]
 
-        # Enrich highlighted courses with institution/degree names and include institutions
-        # that contributed relevant courses but don't have a selected degree.
+        # Enrich highlighted courses with institution/degree names.
         institutions_map = {i["id"]: i for i in institutions}
         degrees_map = {d["id"]: d for d in degrees}
-        course_lookup = {(c.get("code", ""), c.get("name", "")): c for c in major_courses}
+        course_lookup = {c.get("code", "").upper(): c for c in major_courses if c.get("code")}
+        name_lookup = {c.get("name", "").lower(): c for c in major_courses if c.get("name")}
         highlighted_courses = data.get("highlighted_courses", major_courses[:10])
-        selected_institution_ids = {d.get("institution_id") for d in selected_degrees if d.get("institution_id")}
-        additional_edu_entries = []
 
         for hc in highlighted_courses:
-            key = (hc.get("code", ""), hc.get("name", ""))
-            orig = course_lookup.get(key)
+            code = (hc.get("code") or "").upper()
+            orig = course_lookup.get(code)
+            if not orig:
+                orig = name_lookup.get((hc.get("name") or "").lower())
             if orig:
                 inst_id = orig.get("institution_id")
                 deg_id = orig.get("degree_id")
                 hc["institution_name"] = institutions_map.get(inst_id, {}).get("name", "")
                 hc["degree_name"] = degrees_map.get(deg_id, {}).get("degree_name", "")
-                if inst_id and inst_id not in selected_institution_ids and inst_id in institutions_map:
-                    selected_institution_ids.add(inst_id)
-                    inst = institutions_map[inst_id]
-                    additional_edu_entries.append({
-                        "id": None,
-                        "degree_name": "",
-                        "degree_type": "other",
-                        "field": "",
-                        "institution_name": inst.get("name", ""),
-                        "institution_type": inst.get("institution_type", "other"),
-                        "location": inst.get("location", ""),
-                        "start_date": "",
-                        "end_date": "",
-                        "gpa": "",
-                        "honors": "",
-                        "is_current": False
-                    })
-
-        education_entries = selected_degrees + additional_edu_entries
 
         # Format work experience bullets as HTML lists for the template
         formatted_experience = []
@@ -321,7 +302,7 @@ class DocumentGenerator:
             profile=safe_profile,
             name=name,
             summary=data.get("summary", profile.get("summary", "")),
-            degrees=education_entries,
+            degrees=selected_degrees,
             work_experience=formatted_experience,
             projects=projects,
             courses=highlighted_courses,
